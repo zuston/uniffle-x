@@ -25,6 +25,8 @@ bytes = "1" # 高效处理网络 buffer 的库
 tonic-build = "0.9.1"
 thiserror = "1" # 错误定义和处理
 dashmap = "5.4.0"
+log = "0.4.17"
+env_logger = "0.10.0"
 
 [build-dependencies]
 tonic-build = "0.9.1"
