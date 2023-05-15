@@ -1,0 +1,30 @@
+[package]
+name = "uniffle-x"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[[bin]]
+name="datanode"
+path="src/datanode.rs"
+
+[dependencies]
+anyhow = "1" # 错误处理
+tokio = { version = "1", features = ["full" ] } # 异步网络库
+tokio-rustls = "0.22" # 处理 TLS
+tokio-stream = { version = "0.1", features = ["sync"] } # 处理 stream
+tokio-util = { version = "0.6", features = ["compat"]} # tokio 和 futures 的兼容性库
+toml = "0.5" # toml 支持
+tracing = "0.1" # 日志处理
+tracing-appender = "0.1" # 文件日志
+tracing-subscriber = { version = "0.2", features = ["json", "chrono"] } # 日志处理
+tonic = "0.9.1"
+prost = "0.11.8"
+bytes = "1" # 高效处理网络 buffer 的库
+tonic-build = "0.9.1"
+thiserror = "1" # 错误定义和处理
+dashmap = "5.4.0"
+
+[build-dependencies]
+tonic-build = "0.9.1"
