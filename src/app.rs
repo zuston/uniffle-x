@@ -84,9 +84,8 @@ impl App {
     }
 
     pub fn select(&mut self, ctx: ReadingViewContext) -> Result<ResponseData> {
-        // let mut store_mut = Arc::make_mut(&mut self.store);
-        // store_mut.get(ctx)
-        self.store.get(ctx)
+        let mut store_mut = Arc::make_mut(&mut self.store);
+        store_mut.get(ctx)
     }
 
     pub fn list_index(&mut self, ctx: ReadingIndexViewContext) -> Result<ResponseDataIndex> {
@@ -238,7 +237,65 @@ mod test {
     use std::thread::sleep;
     use std::time::{Duration, Instant};
     use dashmap::DashMap;
-    use crate::app::{AppManager, PartitionedUId};
+    use crate::app::{AppManager, PartitionedUId, ReadingOptions, ReadingViewContext, WritingViewContext};
+    use crate::store::{PartitionedDataBlock, ResponseData};
+
+    #[tokio::test]
+    async fn app_put_get_purge_test() {
+        let app_id = "app_put_get_purge_test-----id";
+
+        let appManagerRef = AppManager::get_ref().clone();
+        appManagerRef.register(app_id.clone().into(), 1).unwrap();
+
+        if let Some(mut app) = appManagerRef.get_app("app_id".into()) {
+            let writingCtx = WritingViewContext {
+                uid: PartitionedUId {
+                    app_id: app_id.clone().into(),
+                    shuffle_id: 1,
+                    partition_id: 0
+                },
+                data_blocks: vec![
+                    PartitionedDataBlock {
+                        block_id: 0,
+                        length: 10,
+                        uncompress_length: 20,
+                        crc: 10,
+                        data: Default::default(),
+                        task_attempt_id: 0
+                    },
+                    PartitionedDataBlock {
+                        block_id: 1,
+                        length: 20,
+                        uncompress_length: 30,
+                        crc: 0,
+                        data: Default::default(),
+                        task_attempt_id: 0
+                    }
+                ]
+            };
+            let result = app.insert(writingCtx);
+            if result.is_err() {
+                panic!()
+            }
+
+            let readingCtx = ReadingViewContext {
+                uid: Default::default(),
+                reading_options: ReadingOptions::MEMORY_LAST_BLOCK_ID_AND_MAX_SIZE(-1, 1000000)
+            };
+
+            let result = app.select(readingCtx);
+            if result.is_err() {
+                panic!()
+            }
+
+            match result.unwrap() {
+                ResponseData::mem(data) => {
+                    assert_eq!(2, data.shuffle_data_block_segments.len());
+                },
+                _ => todo!()
+            }
+        }
+    }
 
     #[tokio::test]
     async fn app_manager_test() {
