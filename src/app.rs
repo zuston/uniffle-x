@@ -189,8 +189,8 @@ impl AppManager {
         app_ref
     }
 
-    pub(crate) fn get_app(&self, app_id: String) -> Option<App> {
-        self.apps.get(&app_id).map(|v| v.value().clone())
+    pub(crate) fn get_app(&self, app_id: &str) -> Option<App> {
+        self.apps.get(app_id).map(|v| v.value().clone())
     }
 
     pub fn register(&self, app_id: String, shuffle_id: i32) -> Result<()> {
@@ -309,7 +309,7 @@ mod test {
     #[tokio::test]
     async fn test_async_io() {
         fn test_write() {
-            
+
         }
     }
 
