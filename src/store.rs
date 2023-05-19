@@ -190,7 +190,7 @@ impl MemoryBudget {
 // ===========================================
 
 use async_trait::async_trait;
-
+use crate::error::DatanodeError;
 
 #[async_trait]
 pub trait Store {
@@ -252,25 +252,38 @@ impl Store for LocalFileStore {
             .write().unwrap();
 
         // write index file and data file
+        // todo: split multiple pieces
+        let mut bytes_holder = BytesMut::new();
+        let mut next_offset = local_disk.next_offset(&data_file_path);
+
+        let mut index_bytes_holder = BytesMut::new();
         for block in ctx.data_blocks {
-            let next_offset = local_disk.next_offset(&data_file_path);
 
             let block_id = block.block_id;
             let length = block.length;
             let uncompress_len = block.uncompress_length;
             let task_attempt_id = block.task_attempt_id;
             let crc = block.crc;
+
+            index_bytes_holder.put_i64(next_offset);
+            index_bytes_holder.put_i32(length);
+            index_bytes_holder.put_i32(uncompress_len);
+            index_bytes_holder.put_i64(crc);
+            index_bytes_holder.put_i64(block_id);
+            index_bytes_holder.put_i64(task_attempt_id);
+
             let data = block.data;
-
-            let data_file_cloned = data_file_path.clone();
-
-            // let mut cloned_local_disk = local_disk.clone();
-            // let future = tokio::spawn(async move {
-            //    cloned_local_disk.write(data, data_file_cloned).await?
-            // });
+            bytes_holder.extend_from_slice(&*data);
+            next_offset += length as i64;
         }
 
-        Ok(())
+        // data file write
+        match local_disk.write(bytes_holder.freeze(), data_file_path.clone()).await {
+            Ok(_) => {
+                local_disk.write(index_bytes_holder.freeze(), index_file_path).await
+            },
+            _ => Ok(())
+        }
     }
 
     async fn get(&mut self, ctx: ReadingViewContext) -> Result<ResponseData> {
@@ -547,7 +560,7 @@ mod test {
         };
         match store.require_buffer(ctx).await {
             Ok((_, _)) => {
-                store.purge("100".to_string());
+                store.purge("100".to_string()).await;
             }
             _ => panic!()
         }

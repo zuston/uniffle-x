@@ -8,6 +8,9 @@ use crate::app::PurgeEvent;
 pub enum DatanodeError {
     #[error("Failed to send purge event to app manager channel")]
     PURGE_EVENT_SEND_ERROR(#[from] SendError<PurgeEvent>),
+
+    #[error("Failed to flush memory data to file")]
+    DATA_WRITE_ERROR()
 }
 
 #[cfg(test)]
