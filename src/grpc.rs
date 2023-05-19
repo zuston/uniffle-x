@@ -70,7 +70,7 @@ impl ShuffleServer for DefaultShuffleServer {
                 data_blocks: partitioned_blocks
             };
 
-            match app.insert(ctx) {
+            match app.insert(ctx).await {
                 Err(error) => error!("Errors on putting data, app_id: {}", app_id.clone()),
                 _ => todo!()
             }

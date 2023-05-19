@@ -192,12 +192,13 @@ impl MemoryBudget {
 use async_trait::async_trait;
 
 
+#[async_trait]
 pub trait Store {
-    fn insert(&mut self, ctx: WritingViewContext) -> Result<()>;
-    fn get(&mut self, ctx: ReadingViewContext) -> Result<ResponseData>;
-    fn get_index(&mut self, ctx: ReadingIndexViewContext) -> Result<ResponseDataIndex>;
-    fn require_buffer(&mut self, ctx: RequireBufferContext) -> Result<(bool, i64)>;
-    fn purge(&mut self, app_id: String) -> Result<()>;
+    async fn insert(&mut self, ctx: WritingViewContext) -> Result<()>;
+    async fn get(&mut self, ctx: ReadingViewContext) -> Result<ResponseData>;
+    async fn get_index(&mut self, ctx: ReadingIndexViewContext) -> Result<ResponseDataIndex>;
+    async fn require_buffer(&mut self, ctx: RequireBufferContext) -> Result<(bool, i64)>;
+    async fn purge(&mut self, app_id: String) -> Result<()>;
 }
 
 // ===========================================
@@ -237,8 +238,9 @@ impl LocalFileStore {
     }
 }
 
+#[async_trait]
 impl Store for LocalFileStore {
-    fn insert(&mut self, ctx: WritingViewContext) -> Result<()> {
+    async fn insert(&mut self, ctx: WritingViewContext) -> Result<()> {
         let uid = ctx.uid;
         let (data_file_path, index_file_path) = LocalFileStore::gen_relative_path(&uid);
         let mut local_disk = self.partition_written_disk_map.entry(uid).or_insert_with(||{
@@ -271,19 +273,19 @@ impl Store for LocalFileStore {
         Ok(())
     }
 
-    fn get(&mut self, ctx: ReadingViewContext) -> Result<ResponseData> {
+    async fn get(&mut self, ctx: ReadingViewContext) -> Result<ResponseData> {
         todo!()
     }
 
-    fn get_index(&mut self, ctx: ReadingIndexViewContext) -> Result<ResponseDataIndex> {
+    async fn get_index(&mut self, ctx: ReadingIndexViewContext) -> Result<ResponseDataIndex> {
         todo!()
     }
 
-    fn require_buffer(&mut self, ctx: RequireBufferContext) -> Result<(bool, i64)> {
+    async fn require_buffer(&mut self, ctx: RequireBufferContext) -> Result<(bool, i64)> {
         panic!("It should happen")
     }
 
-    fn purge(&mut self, app_id: String) -> Result<()> {
+    async fn purge(&mut self, app_id: String) -> Result<()> {
         todo!()
     }
 }
@@ -379,8 +381,9 @@ impl MemoryStore {
     }
 }
 
+#[async_trait]
 impl Store for MemoryStore {
-    fn insert(&mut self, ctx: WritingViewContext) -> Result<()> {
+    async fn insert(&mut self, ctx: WritingViewContext) -> Result<()> {
         let uid = ctx.uid;
         let buffer = self.get_or_create_underlying_staging_buffer(uid);
         let mut buffer = buffer.lock().unwrap();
@@ -397,7 +400,7 @@ impl Store for MemoryStore {
         Ok(())
     }
 
-    fn get(&mut self, ctx: ReadingViewContext) -> Result<ResponseData> {
+    async fn get(&mut self, ctx: ReadingViewContext) -> Result<ResponseData> {
         let uid = ctx.uid;
         let buffer = self.get_or_create_underlying_staging_buffer(uid);
         let mut buffer = buffer.lock().unwrap();
@@ -460,11 +463,11 @@ impl Store for MemoryStore {
         ))
     }
 
-    fn get_index(&mut self, ctx: ReadingIndexViewContext) -> Result<ResponseDataIndex> {
+    async fn get_index(&mut self, ctx: ReadingIndexViewContext) -> Result<ResponseDataIndex> {
         panic!("It should not be invoked.")
     }
 
-    fn require_buffer(&mut self, ctx: RequireBufferContext) -> Result<(bool, i64)> {
+    async fn require_buffer(&mut self, ctx: RequireBufferContext) -> Result<(bool, i64)> {
         let result = self.budget.pre_allocate(ctx.size);
         if result.is_ok() {
             let mut val = self.memory_allocated_of_app.entry(ctx.uid.app_id).or_insert_with(||0);
@@ -473,7 +476,7 @@ impl Store for MemoryStore {
         result
     }
 
-    fn purge(&mut self, app_id: String) -> Result<()> {
+    async fn purge(&mut self, app_id: String) -> Result<()> {
         self.memory_allocated_of_app.get(&app_id).map(|v| {
             let size = v.value();
             self.budget.free_allocated(*size);
@@ -531,8 +534,8 @@ mod test {
         temp_dir.close().unwrap();
     }
 
-    #[test]
-    fn test_allocated_and_purge_for_memory() {
+    #[tokio::test]
+    async fn test_allocated_and_purge_for_memory() {
         let mut store = MemoryStore::new(1024 * 1024 * 1024);
         let ctx = RequireBufferContext {
             uid: PartitionedUId {
@@ -542,7 +545,7 @@ mod test {
             },
             size: 10000
         };
-        match store.require_buffer(ctx) {
+        match store.require_buffer(ctx).await {
             Ok((_, _)) => {
                 store.purge("100".to_string());
             }
@@ -557,8 +560,8 @@ mod test {
         assert_eq!(false, store.state.contains_key("100".into()));
     }
 
-    #[test]
-    fn test_put_and_get_for_memory() {
+    #[tokio::test]
+    async fn test_put_and_get_for_memory() {
         let mut store = MemoryStore::new(1024 * 1024 * 1024);
         let writingCtx = WritingViewContext {
             uid: Default::default(),
@@ -581,14 +584,14 @@ mod test {
                 }
             ]
         };
-        store.insert(writingCtx).unwrap();
+        store.insert(writingCtx).await.unwrap();
         
         let readingCtx = ReadingViewContext {
             uid: Default::default(),
             reading_options: ReadingOptions::MEMORY_LAST_BLOCK_ID_AND_MAX_SIZE(-1, 1000000)
         };
 
-        match store.get(readingCtx).unwrap() {
+        match store.get(readingCtx).await.unwrap() {
             ResponseData::mem(data) => {
                 assert_eq!(data.shuffle_data_block_segments.len(), 2);
                 assert_eq!(data.shuffle_data_block_segments.get(0).unwrap().offset, 0);
