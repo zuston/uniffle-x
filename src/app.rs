@@ -307,6 +307,13 @@ mod test {
     }
 
     #[tokio::test]
+    async fn test_async_io() {
+        fn test_write() {
+            
+        }
+    }
+
+    #[tokio::test]
     async fn test_deref() {
         struct Person {
             age: i32

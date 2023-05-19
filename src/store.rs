@@ -1,18 +1,28 @@
 use std::borrow::BorrowMut;
 use std::cell::{Ref, RefCell, RefMut};
-use std::sync::{Arc, Mutex};
+use std::collections::HashMap;
+use std::fmt::format;
+use std::hash::Hash;
+use std::io::SeekFrom;
+use std::path::Path;
+use std::sync::{Arc, Mutex, RwLock};
 use std::sync::atomic::{AtomicI64, Ordering};
+use std::thread::park;
 use std::time::Duration;
 use anyhow::{Result, anyhow};
 use bytes::{BufMut, Bytes, BytesMut};
 use dashmap::DashMap;
 use dashmap::mapref::multiple::RefMulti;
 use log::warn;
-use thiserror::Error;
+use tokio::{fs, select};
+use tokio::fs::{File, OpenOptions};
+use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt};
 use tonic::codegen::ok;
+use tracing::dispatcher::set_default;
 use crate::app::{PartitionedUId, ReadingIndexViewContext, ReadingViewContext, RequireBufferContext, WritingViewContext};
 use crate::app::ReadingOptions::{MEMORY_LAST_BLOCK_ID_AND_MAX_SIZE};
 use crate::proto::uniffle::{ShuffleBlock, ShuffleData};
+use crate::store::ResponseDataIndex::local;
 
 #[derive(Debug)]
 pub struct PartitionedData {
@@ -189,14 +199,73 @@ pub trait Store {
 
 // ===========================================
 
+fn create_directory_if_not_exists(dir_path: &str) {
+    if !std::fs::metadata(dir_path).is_ok() {
+        std::fs::create_dir_all(dir_path);
+    }
+}
 
 pub struct LocalFileStore {
-    local_disks_path: Vec<String>
+    local_disks: Vec<Arc<LocalDisk>>,
+    partition_written_disk_map: DashMap<PartitionedUId, Arc<LocalDisk>>,
+    file_locks: DashMap<String, RwLock<()>>,
+}
+
+impl LocalFileStore {
+    fn new(local_disks: Vec<String>) -> Self {
+        let mut local_disk_instances = vec![];
+        for path in local_disks {
+            local_disk_instances.push(
+                Arc::new(LocalDisk::new(path))
+            );
+        }
+        LocalFileStore {
+            local_disks: local_disk_instances,
+            partition_written_disk_map: DashMap::new(),
+            file_locks: DashMap::new()
+        }
+    }
+
+    fn gen_relative_path(uid: &PartitionedUId) -> (String, String) {
+        (
+            format!("{}/{}/partition-{}.data", uid.app_id, uid.shuffle_id, uid.partition_id),
+            format!("{}/{}/partition-{}.index", uid.app_id, uid.shuffle_id, uid.partition_id)
+        )
+    }
 }
 
 impl Store for LocalFileStore {
     fn insert(&mut self, ctx: WritingViewContext) -> Result<()> {
-        todo!()
+        let uid = ctx.uid;
+        let (data_file_path, index_file_path) = LocalFileStore::gen_relative_path(&uid);
+        let mut local_disk = self.partition_written_disk_map.entry(uid).or_insert_with(||{
+            // todo: support hash selection or more pluggable selections
+            self.local_disks.get(0).unwrap().clone()
+        }).clone();
+
+        self.file_locks.entry(data_file_path.clone()).or_insert_with(|| RwLock::new(()))
+            .write().unwrap();
+
+        // write index file and data file
+        for block in ctx.data_blocks {
+            let next_offset = local_disk.next_offset(&data_file_path);
+
+            let block_id = block.block_id;
+            let length = block.length;
+            let uncompress_len = block.uncompress_length;
+            let task_attempt_id = block.task_attempt_id;
+            let crc = block.crc;
+            let data = block.data;
+
+            let data_file_cloned = data_file_path.clone();
+
+            // let mut cloned_local_disk = local_disk.clone();
+            // let future = tokio::spawn(async move {
+            //    cloned_local_disk.write(data, data_file_cloned).await?
+            // });
+        }
+
+        Ok(())
     }
 
     fn get(&mut self, ctx: ReadingViewContext) -> Result<ResponseData> {
@@ -208,7 +277,7 @@ impl Store for LocalFileStore {
     }
 
     fn require_buffer(&mut self, ctx: RequireBufferContext) -> Result<(bool, i64)> {
-        todo!()
+        panic!("It should happen")
     }
 
     fn purge(&mut self, app_id: String) -> Result<()> {
@@ -216,6 +285,63 @@ impl Store for LocalFileStore {
     }
 }
 
+struct LocalDisk {
+    base_path: String,
+    partition_file_len: HashMap<String, i64>
+}
+
+impl LocalDisk {
+    fn new(path: String) -> Self {
+        create_directory_if_not_exists(&path);
+        LocalDisk {
+            base_path: path,
+            partition_file_len: HashMap::new()
+        }
+    }
+
+    fn append_path(&self, path: String) -> String {
+        format!("{}/{}", self.base_path.clone(), path)
+    }
+
+    fn next_offset(&self, data_file_name: &str) -> i64 {
+        self.partition_file_len.get(data_file_name).copied().unwrap_or(0)
+    }
+
+    async fn write(&mut self, data: Bytes, relative_file_path: String) -> Result<()> {
+        let absolute_path = self.append_path(relative_file_path.clone());
+        let path = Path::new(&absolute_path);
+
+        match path.parent() {
+            Some(parent) => {
+                if !parent.exists() {
+                    create_directory_if_not_exists(parent.to_str().unwrap())
+                }
+            },
+            _ => todo!()
+        }
+
+        let mut output_file= OpenOptions::new().append(true).create(true).open(absolute_path).await?;
+        output_file.write_all(data.as_ref()).await?;
+
+        let mut val = self.partition_file_len.entry(relative_file_path).or_insert(0);
+        *val += data.len() as i64;
+
+        Ok(())
+    }
+
+    async fn read(&self, relative_file_path: String, offset: i64, length: i64) -> Result<Bytes> {
+        let file_path = self.append_path(relative_file_path);
+
+        let file = tokio::fs::File::open(&file_path).await?;
+        let mut reader = tokio::io::BufReader::new(file);
+
+        let mut buffer = vec![0; length as usize];
+        reader.seek(SeekFrom::Start(offset as u64)).await?;
+        reader.read_exact(buffer.as_mut()).await?;
+
+        Ok(Bytes::copy_from_slice(&*buffer))
+    }
+}
 
 // ===========================================
 
@@ -246,11 +372,6 @@ impl MemoryStore {
         let app_level_entry = self.state.entry(app_id).or_insert_with(|| DashMap::new());
         let shuffle_level_entry = app_level_entry.entry(shuffle_id).or_insert_with(|| DashMap::new());
         let buffer = shuffle_level_entry.entry(partition_id).or_insert_with(|| Arc::new(Mutex::new(StagingBuffer::new())));
-
-        // let buffer = shuffle_level_entry
-        //     .entry(partition_id)
-        //     .or_insert_with(|| RefCell::new(StagingBuffer::new()))
-        //     .borrow_mut();
         buffer.clone()
     }
 }
@@ -364,11 +485,47 @@ impl Store for MemoryStore {
 
 #[cfg(test)]
 mod test {
+    use core::panic;
     use std::borrow::Borrow;
+    use std::io::Read;
     use bytes::{Bytes, BytesMut};
     use log::Level::Debug;
     use crate::app::{PartitionedUId, ReadingOptions, ReadingViewContext, RequireBufferContext, WritingViewContext};
-    use crate::store::{MemoryStore, PartitionedDataBlock, ResponseData, Store};
+    use crate::store::{LocalDisk, MemoryStore, PartitionedDataBlock, ResponseData, Store};
+    use crate::store::ResponseDataIndex::local;
+
+    #[tokio::test]
+    async fn local_disk_test() {
+        let temp_dir = tempdir::TempDir::new("test_directory").unwrap();
+        let temp_path = temp_dir.path().to_str().unwrap().to_string();
+
+        let mut local_disk = LocalDisk::new(temp_path.clone());
+
+        let data = b"Hello, World!";
+
+        let relative_path = "app-id/test_file.txt";
+        let write_result = local_disk.write(Bytes::copy_from_slice(data), relative_path.to_string()).await;
+        assert!(write_result.is_ok());
+
+        // test whether the content is written
+        let file_path = format!("{}/{}", local_disk.base_path, relative_path);
+        let mut file = std::fs::File::open(file_path).unwrap();
+        let mut file_content = Vec::new();
+        file.read_to_end(&mut file_content).unwrap();
+        assert_eq!(file_content, data);
+
+        // if the file has been created, append some content
+        let write_result = local_disk.write(Bytes::copy_from_slice(data), relative_path.to_string()).await;
+        assert!(write_result.is_ok());
+
+        let read_result = local_disk.read(relative_path.to_string(), 0, data.len() as i64 * 2).await;
+        assert!(read_result.is_ok());
+        let read_data = read_result.unwrap();
+        let expected = b"Hello, World!Hello, World!";
+        assert_eq!(read_data.as_ref(), expected);
+
+        temp_dir.close().unwrap();
+    }
 
     #[test]
     fn test_allocated_and_purge_for_memory() {

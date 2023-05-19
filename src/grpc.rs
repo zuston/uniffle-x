@@ -46,7 +46,7 @@ impl ShuffleServer for DefaultShuffleServer {
     }
 
     async fn commit_shuffle_task(&self, request: Request<ShuffleCommitRequest>) -> Result<Response<ShuffleCommitResponse>, Status> {
-        todo!()
+        panic!("It has not been supported.")
     }
 
     async fn report_shuffle_result(&self, request: Request<ReportShuffleResultRequest>) -> Result<Response<ReportShuffleResultResponse>, Status> {
