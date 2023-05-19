@@ -7,7 +7,7 @@ edition = "2021"
 
 [[bin]]
 name="datanode"
-path="src/datanode.rs"
+path= "src/main.rs"
 
 [dependencies]
 anyhow = "1" # 错误处理
@@ -27,6 +27,8 @@ thiserror = "1" # 错误定义和处理
 dashmap = "5.4.0"
 log = "0.4.17"
 env_logger = "0.10.0"
+crossbeam = "0.8.2"
+crossbeam-channel = "0.5"
 
 [build-dependencies]
 tonic-build = "0.9.1"

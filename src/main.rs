@@ -8,8 +8,9 @@ use anyhow::{Result, anyhow};
 
 pub mod proto;
 pub mod app;
-pub mod schedule;
+pub mod store;
 pub mod grpc;
+mod error;
 
 #[tokio::main]
 async fn main() -> Result<()> {
