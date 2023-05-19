@@ -1570,6 +1570,7 @@ name = "uniffle-x"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "async-trait",
  "bytes",
  "crossbeam",
  "crossbeam-channel",

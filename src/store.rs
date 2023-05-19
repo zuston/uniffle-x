@@ -189,6 +189,9 @@ impl MemoryBudget {
 
 // ===========================================
 
+use async_trait::async_trait;
+
+
 pub trait Store {
     fn insert(&mut self, ctx: WritingViewContext) -> Result<()>;
     fn get(&mut self, ctx: ReadingViewContext) -> Result<ResponseData>;
@@ -488,6 +491,7 @@ mod test {
     use core::panic;
     use std::borrow::Borrow;
     use std::io::Read;
+    use async_trait::async_trait;
     use bytes::{Bytes, BytesMut};
     use log::Level::Debug;
     use crate::app::{PartitionedUId, ReadingOptions, ReadingViewContext, RequireBufferContext, WritingViewContext};
@@ -592,5 +596,37 @@ mod test {
             },
             _ => panic!("should not")
         }
+    }
+
+    #[tokio::test]
+    async fn test_async_trait() {
+        use anyhow::{Result, anyhow};
+        #[async_trait]
+        trait Person {
+            async fn get(&self) -> anyhow::Result<()>;
+            async fn put(&self);
+        }
+
+        struct Man {
+            age: i32
+        }
+
+        #[async_trait]
+        impl Person for Man {
+            async fn get(&self) -> anyhow::Result<()>{
+                Ok(())
+            }
+
+            async fn put(&self) {
+
+            }
+        }
+
+        let man = Man {
+            age: 10
+        };
+
+        man.get().await;
+        man.put().await;
     }
 }
