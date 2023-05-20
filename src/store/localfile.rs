@@ -1,3 +1,5 @@
+use std::borrow::Borrow;
+use std::cell::Ref;
 use std::collections::HashMap;
 use std::io::SeekFrom;
 use std::path::Path;
@@ -8,9 +10,11 @@ use anyhow::Result;
 use bytes::{BufMut, Bytes, BytesMut};
 use tokio::fs::OpenOptions;
 use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt};
-use crate::store::{ResponseData, ResponseDataIndex, Store};
+use crate::store::{LocalDataIndex, PartitionedLocalData, ResponseData, ResponseDataIndex, Store};
 use async_trait::async_trait;
 use tokio::sync::RwLock;
+use tonic::codegen::ok;
+use crate::app::ReadingOptions::FILE_OFFSET_AND_LEN;
 
 fn create_directory_if_not_exists(dir_path: &str) {
     if !std::fs::metadata(dir_path).is_ok() {
@@ -95,11 +99,55 @@ impl Store for LocalFileStore {
     }
 
     async fn get(&mut self, ctx: ReadingViewContext) -> Result<ResponseData> {
-        todo!()
+        let uid = ctx.uid;
+        let (offset, len) = match ctx.reading_options {
+            FILE_OFFSET_AND_LEN(offset, len) => (offset, len),
+            _ => (0, 0)
+        };
+
+        if len == 0 {
+            return Ok(ResponseData::local(PartitionedLocalData {
+                data: Default::default()
+            }))
+        }
+
+        let (data_file_path, _) = LocalFileStore::gen_relative_path(&uid);
+        let _ = self.file_locks.entry(data_file_path.clone()).or_insert_with(|| RwLock::new(())).read().await;
+
+        let local_disk: Option<Arc<LocalDisk>> = self.partition_written_disk_map.get(&uid).map(|v|v.value().clone());
+
+        if local_disk.is_none() {
+            return Ok(ResponseData::local(PartitionedLocalData {
+                data: Default::default()
+            }))
+        }
+
+        let local_disk = local_disk.unwrap();
+        let data = local_disk.read(data_file_path, offset, Some(len)).await;
+        Ok(ResponseData::local(PartitionedLocalData {
+            data: data.unwrap()
+        }))
     }
 
     async fn get_index(&mut self, ctx: ReadingIndexViewContext) -> Result<ResponseDataIndex> {
-        todo!()
+        let uid = ctx.partition_id;
+        let (data_file_path, index_file_path) = LocalFileStore::gen_relative_path(&uid);
+        let _ = self.file_locks.entry(data_file_path.clone()).or_insert_with(|| RwLock::new(())).write().await;
+
+        let local_disk: Option<Arc<LocalDisk>> = self.partition_written_disk_map.get(&uid).map(|v|v.value().clone());
+
+        if local_disk.is_none() {
+            return Ok(ResponseDataIndex::local(LocalDataIndex {
+                index_data: Default::default(),
+                data_file_len: 0
+            }));
+        }
+
+        let index_data_result = local_disk.unwrap().read(index_file_path, 0, None).await;
+        Ok(ResponseDataIndex::local(LocalDataIndex {
+            index_data: index_data_result.unwrap(),
+            data_file_len: 0
+        }))
     }
 
     async fn require_buffer(&mut self, ctx: RequireBufferContext) -> Result<(bool, i64)> {
@@ -149,6 +197,8 @@ impl LocalDisk {
             _ => todo!()
         }
 
+        println!("data file: {}", absolute_path.clone());
+
         let mut output_file= OpenOptions::new().append(true).create(true).open(absolute_path).await?;
         output_file.write_all(data.as_ref()).await?;
 
@@ -158,25 +208,139 @@ impl LocalDisk {
         Ok(())
     }
 
-    async fn read(&self, relative_file_path: String, offset: i64, length: i64) -> Result<Bytes> {
+    async fn read(&self, relative_file_path: String, offset: i64, length: Option<i64>) -> Result<Bytes> {
         let file_path = self.append_path(relative_file_path);
 
         let file = tokio::fs::File::open(&file_path).await?;
-        let mut reader = tokio::io::BufReader::new(file);
 
-        let mut buffer = vec![0; length as usize];
+        let read_len = match length {
+            Some(len) => len,
+            _ => file.metadata().await?.len().try_into().unwrap()
+        } as usize;
+
+        let mut reader = tokio::io::BufReader::new(file);
+        let mut buffer = vec![0; read_len];
         reader.seek(SeekFrom::Start(offset as u64)).await?;
         reader.read_exact(buffer.as_mut()).await?;
 
-        Ok(Bytes::copy_from_slice(&*buffer))
+        let mut bytes_buffer = BytesMut::new();
+        bytes_buffer.extend_from_slice(&*buffer);
+        Ok(bytes_buffer.freeze())
     }
 }
 
 #[cfg(test)]
 mod test {
+    use std::fs::read;
     use std::io::Read;
-    use bytes::Bytes;
-    use crate::store::localfile::LocalDisk;
+    use bytes::{Buf, Bytes, BytesMut};
+    use log::info;
+    use crate::app::{PartitionedUId, ReadingIndexViewContext, ReadingOptions, ReadingViewContext, WritingViewContext};
+    use crate::store::localfile::{LocalDisk, LocalFileStore};
+    use crate::store::{PartitionedDataBlock, ResponseData, ResponseDataIndex, Store};
+
+    #[tokio::test]
+    async fn local_store_test() {
+        let temp_dir = tempdir::TempDir::new("test_local_store").unwrap();
+        let temp_path = temp_dir.path().to_str().unwrap().to_string();
+        info!("init local file path: {}", temp_path);
+        let mut local_store = LocalFileStore::new(vec![temp_path]);
+
+        let uid = PartitionedUId {
+            app_id: "100".to_string(),
+            shuffle_id: 0,
+            partition_id: 0
+        };
+
+        let data = b"hello world!hello china!";
+        let size = data.len();
+        let writingCtx = WritingViewContext {
+            uid: uid.clone(),
+            data_blocks: vec![
+                PartitionedDataBlock {
+                    block_id: 0,
+                    length: size as i32,
+                    uncompress_length: 200,
+                    crc: 0,
+                    data: Bytes::copy_from_slice(data),
+                    task_attempt_id: 0
+                },
+                PartitionedDataBlock {
+                    block_id: 1,
+                    length: size as i32,
+                    uncompress_length: 200,
+                    crc: 0,
+                    data: Bytes::copy_from_slice(data),
+                    task_attempt_id: 0
+                }
+            ]
+        };
+
+        let insert_result = local_store.insert(writingCtx).await;
+        if insert_result.is_err() {
+            panic!()
+        }
+
+        async fn get_and_check_partitial_data(local_store: &mut LocalFileStore, uid: PartitionedUId, size: i64, expected: &[u8]) {
+            let readingCtx = ReadingViewContext {
+                uid,
+                reading_options: ReadingOptions::FILE_OFFSET_AND_LEN(0, size as i64)
+            };
+
+            let read_result = local_store.get(readingCtx).await;
+            if read_result.is_err() {
+                panic!()
+            }
+
+            match read_result.unwrap() {
+                ResponseData::local(partitioned_data) => {
+                    assert_eq!(expected, partitioned_data.data.as_ref());
+                },
+                _ => panic!()
+            }
+        }
+
+        // case1: read the one partition block data
+        get_and_check_partitial_data(&mut local_store, uid.clone(), size as i64, data).await;
+
+        // case2: read the complete block data
+        let mut expected = BytesMut::with_capacity(size* 2);
+        expected.extend_from_slice(data);
+        expected.extend_from_slice(data);
+        get_and_check_partitial_data(&mut local_store, uid.clone(), size as i64 * 2, expected.freeze().as_ref()).await;
+
+        // case3: get the index data
+        let readingIndexViewCtx = ReadingIndexViewContext {
+            partition_id: uid.clone()
+        };
+        let result = local_store.get_index(readingIndexViewCtx).await;
+        if result.is_err() {
+            panic!()
+        }
+
+        match result.unwrap() {
+            ResponseDataIndex::local(data) => {
+                let mut index = data.index_data;
+                let offset_1 = index.get_i64();
+                assert_eq!(0, offset_1);
+                let length_1 = index.get_i32();
+                assert_eq!(size as i32, length_1);
+                index.get_i32();
+                index.get_i64();
+                let block_id_1 = index.get_i64();
+                assert_eq!(0, block_id_1);
+                let task_id = index.get_i64();
+                assert_eq!(0, task_id);
+
+                let offset_2 = index.get_i64();
+                assert_eq!(size as i64, offset_2);
+                assert_eq!(size as i32, index.get_i32())
+            },
+            _ => panic!()
+        }
+
+        temp_dir.close().unwrap();
+    }
 
     #[tokio::test]
     async fn local_disk_test() {
@@ -202,7 +366,7 @@ mod test {
         let write_result = local_disk.write(Bytes::copy_from_slice(data), relative_path.to_string()).await;
         assert!(write_result.is_ok());
 
-        let read_result = local_disk.read(relative_path.to_string(), 0, data.len() as i64 * 2).await;
+        let read_result = local_disk.read(relative_path.to_string(), 0, Some(data.len() as i64 * 2)).await;
         assert!(read_result.is_ok());
         let read_data = read_result.unwrap();
         let expected = b"Hello, World!Hello, World!";

@@ -121,7 +121,7 @@ pub struct ReadingViewContext {
 }
 
 pub struct ReadingIndexViewContext {
-    partition_id: PartitionedUId
+    pub partition_id: PartitionedUId
 }
 
 pub struct RequireBufferContext {
