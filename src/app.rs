@@ -15,7 +15,9 @@ use tonic::codegen::ok;
 use tracing::callsite::register;
 use crate::error::DatanodeError;
 use crate::proto::uniffle::ShuffleData;
-use crate::store::{MemoryStore, PartitionedData, PartitionedDataBlock, ResponseData, ResponseDataIndex, Store};
+use crate::store;
+use crate::store::{PartitionedData, PartitionedDataBlock, ResponseData, ResponseDataIndex, Store};
+use crate::store::memory::MemoryStore;
 
 #[derive(Debug, Clone)]
 enum DataDistribution {
