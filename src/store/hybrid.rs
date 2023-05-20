@@ -5,10 +5,8 @@ use crate::store::{ResponseData, ResponseDataIndex, Store};
 use crate::store::localfile::LocalFileStore;
 use async_trait::async_trait;
 use anyhow::{Result, anyhow};
-
-struct HybridStoreConfig {
-// todo: support memory/low watermark
-}
+use crate::config;
+use crate::config::HybridStoreConfig;
 
 struct HybridStore {
     // Box<dyn Store> will build fail

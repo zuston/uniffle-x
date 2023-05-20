@@ -10,6 +10,7 @@ pub mod app;
 pub mod store;
 pub mod grpc;
 mod error;
+mod config;
 
 #[tokio::main]
 async fn main() -> Result<()> {
