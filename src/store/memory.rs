@@ -1,4 +1,4 @@
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc};
 use bytes::BytesMut;
 use dashmap::DashMap;
 use crate::*;
@@ -6,6 +6,7 @@ use crate::app::{PartitionedUId, ReadingIndexViewContext, ReadingViewContext, Re
 use crate::app::ReadingOptions::MEMORY_LAST_BLOCK_ID_AND_MAX_SIZE;
 use crate::store::{DataSegment, PartitionedDataBlock, PartitionedMemoryData, ResponseData, ResponseDataIndex, Store};
 use async_trait::async_trait;
+use tokio::sync::Mutex;
 
 #[derive(Clone)]
 pub struct MemoryStore {
@@ -43,7 +44,7 @@ impl Store for MemoryStore {
     async fn insert(&mut self, ctx: WritingViewContext) -> Result<()> {
         let uid = ctx.uid;
         let buffer = self.get_or_create_underlying_staging_buffer(uid);
-        let mut buffer = buffer.lock().unwrap();
+        let mut buffer = buffer.lock().await;
 
         let blocks = ctx.data_blocks;
 
@@ -60,7 +61,7 @@ impl Store for MemoryStore {
     async fn get(&mut self, ctx: ReadingViewContext) -> Result<ResponseData> {
         let uid = ctx.uid;
         let buffer = self.get_or_create_underlying_staging_buffer(uid);
-        let mut buffer = buffer.lock().unwrap();
+        let mut buffer = buffer.lock().await;
 
         let options = ctx.reading_options;
         let (fetched_blocks, length) = match options {
@@ -125,19 +126,22 @@ impl Store for MemoryStore {
     }
 
     async fn require_buffer(&mut self, ctx: RequireBufferContext) -> Result<(bool, i64)> {
-        let result = self.budget.pre_allocate(ctx.size);
-        if result.is_ok() {
-            let mut val = self.memory_allocated_of_app.entry(ctx.uid.app_id).or_insert_with(||0);
-            *val += ctx.size;
-        }
-        result
+        // let result = self.budget.pre_allocate(ctx.size).await;
+        // if result.is_ok() {
+        //     let mut val = self.memory_allocated_of_app.entry(ctx.uid.app_id).or_insert_with(||0);
+        //     *val += ctx.size;
+        // }
+        // result
+        Ok((true, 100))
     }
 
     async fn purge(&mut self, app_id: String) -> Result<()> {
-        self.memory_allocated_of_app.get(&app_id).map(|v| {
-            let size = v.value();
-            self.budget.free_allocated(*size);
-        });
+        match self.memory_allocated_of_app.get(&app_id) {
+            Some(val) => {
+                self.budget.free_allocated(*val).await.unwrap();
+            }
+            _ => todo!()
+        }
 
         self.state.remove(&app_id);
         Ok(())
@@ -190,8 +194,8 @@ impl MemoryBudget {
         }
     }
 
-    fn pre_allocate(&mut self, size: i64) -> Result<(bool, i64)> {
-        let mut inner = self.inner.lock().unwrap();
+    async fn pre_allocate(&mut self, size: i64) -> Result<(bool, i64)> {
+        let mut inner = self.inner.lock().await;
         let free_space = inner.capacity - inner.allocated - inner.used;
         if free_space < size {
             Ok((false, -1))
@@ -203,8 +207,8 @@ impl MemoryBudget {
         }
     }
 
-    fn allocated_to_used(&mut self, size: i64) -> Result<bool> {
-        let mut inner = self.inner.lock().unwrap();
+    async fn allocated_to_used(&mut self, size: i64) -> Result<bool> {
+        let mut inner = self.inner.lock().await;
         if inner.allocated < size {
             inner.allocated = 0;
         } else {
@@ -214,8 +218,8 @@ impl MemoryBudget {
         Ok(true)
     }
 
-    fn free_used(&mut self, size: i64) -> Result<bool> {
-        let mut inner = self.inner.lock().unwrap();
+    async fn free_used(&mut self, size: i64) -> Result<bool> {
+        let mut inner = self.inner.lock().await;
         if inner.used < size {
             inner.used = 0;
             // todo: metric
@@ -225,8 +229,8 @@ impl MemoryBudget {
         Ok(true)
     }
 
-    fn free_allocated(&mut self, size: i64) -> Result<bool> {
-        let mut inner = self.inner.lock().unwrap();
+    async fn free_allocated(&mut self, size: i64) -> Result<bool> {
+        let mut inner = self.inner.lock().await;
         if inner.allocated < size {
             inner.allocated = 0;
         } else {

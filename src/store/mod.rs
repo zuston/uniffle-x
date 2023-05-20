@@ -1,5 +1,6 @@
 pub mod memory;
 pub mod localfile;
+pub mod hybrid;
 
 use std::borrow::BorrowMut;
 use std::cell::{Ref, RefCell, RefMut};

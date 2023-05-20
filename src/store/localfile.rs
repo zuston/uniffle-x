@@ -28,8 +28,11 @@ pub struct LocalFileStore {
     file_locks: DashMap<String, RwLock<()>>,
 }
 
+unsafe impl Send for LocalFileStore {}
+unsafe impl Sync for LocalFileStore {}
+
 impl LocalFileStore {
-    fn new(local_disks: Vec<String>) -> Self {
+    pub fn new(local_disks: Vec<String>) -> Self {
         let mut local_disk_instances = vec![];
         for path in local_disks {
             local_disk_instances.push(
@@ -132,7 +135,7 @@ impl Store for LocalFileStore {
     async fn get_index(&mut self, ctx: ReadingIndexViewContext) -> Result<ResponseDataIndex> {
         let uid = ctx.partition_id;
         let (data_file_path, index_file_path) = LocalFileStore::gen_relative_path(&uid);
-        let _ = self.file_locks.entry(data_file_path.clone()).or_insert_with(|| RwLock::new(())).write().await;
+        let _ = self.file_locks.entry(data_file_path.clone()).or_insert_with(|| RwLock::new(())).read().await;
 
         let local_disk: Option<Arc<LocalDisk>> = self.partition_written_disk_map.get(&uid).map(|v|v.value().clone());
 
