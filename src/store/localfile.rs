@@ -143,10 +143,11 @@ impl Store for LocalFileStore {
             }));
         }
 
-        let index_data_result = local_disk.unwrap().read(index_file_path, 0, None).await;
+        let index_data_result = local_disk.unwrap().read(index_file_path, 0, None).await.unwrap();
+        let len = index_data_result.clone().len() as i64;
         Ok(ResponseDataIndex::local(LocalDataIndex {
-            index_data: index_data_result.unwrap(),
-            data_file_len: 0
+            index_data: index_data_result,
+            data_file_len: len
         }))
     }
 
@@ -334,7 +335,7 @@ mod test {
 
                 let offset_2 = index.get_i64();
                 assert_eq!(size as i64, offset_2);
-                assert_eq!(size as i32, index.get_i32())
+                assert_eq!(size as i32, index.get_i32());
             },
             _ => panic!()
         }
