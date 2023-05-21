@@ -28,6 +28,8 @@ use crate::app::ReadingOptions::{MEMORY_LAST_BLOCK_ID_AND_MAX_SIZE};
 use crate::proto::uniffle::{ShuffleBlock, ShuffleData};
 use crate::store::ResponseDataIndex::local;
 use async_trait::async_trait;
+use crate::config::Config;
+use crate::store::memory::MemoryStore;
 
 #[derive(Debug)]
 pub struct PartitionedData {
@@ -110,3 +112,10 @@ pub trait Store {
     async fn purge(&mut self, app_id: String) -> Result<()>;
 }
 
+pub struct StoreProvider {}
+
+impl StoreProvider {
+    fn get(config: Config) -> impl Store {
+        MemoryStore::new(1023)
+    }
+}

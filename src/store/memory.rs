@@ -7,6 +7,7 @@ use crate::app::ReadingOptions::MEMORY_LAST_BLOCK_ID_AND_MAX_SIZE;
 use crate::store::{DataSegment, PartitionedDataBlock, PartitionedMemoryData, ResponseData, ResponseDataIndex, Store};
 use async_trait::async_trait;
 use tokio::sync::Mutex;
+use crate::config::MemoryStoreConfig;
 
 #[derive(Clone)]
 pub struct MemoryStore {
@@ -24,6 +25,14 @@ impl MemoryStore {
         MemoryStore {
             state: DashMap::new(),
             budget: MemoryBudget::new(max_memory_size),
+            memory_allocated_of_app: DashMap::new()
+        }
+    }
+
+    pub fn from(conf: MemoryStoreConfig) -> Self {
+        MemoryStore {
+            state: DashMap::new(),
+            budget: MemoryBudget::new(conf.capacity),
             memory_allocated_of_app: DashMap::new()
         }
     }
@@ -272,12 +281,12 @@ mod test {
             _ => panic!()
         }
 
-        let budget = store.budget.inner.lock().unwrap();
+        let budget = store.budget.inner.lock().await;
         assert_eq!(0, budget.allocated);
         assert_eq!(0, budget.used);
         assert_eq!(1024 * 1024 * 1024, budget.capacity);
 
-        assert_eq!(false, store.state.contains_key("100".into()));
+        assert_eq!(false, store.state.contains_key(&"100".to_string()));
     }
 
     #[tokio::test]

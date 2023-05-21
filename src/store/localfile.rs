@@ -15,6 +15,7 @@ use async_trait::async_trait;
 use tokio::sync::RwLock;
 use tonic::codegen::ok;
 use crate::app::ReadingOptions::FILE_OFFSET_AND_LEN;
+use crate::config::LocalfileStoreConfig;
 
 fn create_directory_if_not_exists(dir_path: &str) {
     if !std::fs::metadata(dir_path).is_ok() {
@@ -35,6 +36,20 @@ impl LocalFileStore {
     pub fn new(local_disks: Vec<String>) -> Self {
         let mut local_disk_instances = vec![];
         for path in local_disks {
+            local_disk_instances.push(
+                Arc::new(LocalDisk::new(path))
+            );
+        }
+        LocalFileStore {
+            local_disks: local_disk_instances,
+            partition_written_disk_map: DashMap::new(),
+            file_locks: DashMap::new()
+        }
+    }
+
+    pub fn from(localfile_config: LocalfileStoreConfig) -> Self {
+        let mut local_disk_instances = vec![];
+        for path in localfile_config.data_paths {
             local_disk_instances.push(
                 Arc::new(LocalDisk::new(path))
             );

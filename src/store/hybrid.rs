@@ -6,7 +6,7 @@ use crate::store::localfile::LocalFileStore;
 use async_trait::async_trait;
 use anyhow::{Result, anyhow};
 use crate::config;
-use crate::config::HybridStoreConfig;
+use crate::config::{Config, HybridStoreConfig};
 
 struct HybridStore {
     // Box<dyn Store> will build fail
@@ -19,11 +19,11 @@ unsafe impl Send for HybridStore {}
 unsafe impl Sync for HybridStore {}
 
 impl HybridStore {
-    fn new() -> Self {
+    fn from(config: Config) -> Self {
         HybridStore {
-            hot_store: Box::new(MemoryStore::new(1024 * 1024 * 1024 * 50)),
-            warm_store: Box::new(LocalFileStore::new(vec!["/tmp/uniffle/data".to_string()])),
-            config: HybridStoreConfig {}
+            hot_store: Box::new(MemoryStore::from(config.memory_store.unwrap())),
+            warm_store: Box::new(LocalFileStore::from(config.localfile_store.unwrap())),
+            config: config.hybrid_store.unwrap()
         }
     }
 }
