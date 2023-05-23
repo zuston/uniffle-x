@@ -71,7 +71,7 @@ impl LocalFileStore {
 
 #[async_trait]
 impl Store for LocalFileStore {
-    async fn insert(&mut self, ctx: WritingViewContext) -> Result<()> {
+    async fn insert(&self, ctx: WritingViewContext) -> Result<()> {
         let uid = ctx.uid;
         let (data_file_path, index_file_path) = LocalFileStore::gen_relative_path(&uid);
         let local_disk = self.partition_written_disk_map.entry(uid).or_insert_with(||{
@@ -116,7 +116,7 @@ impl Store for LocalFileStore {
         }
     }
 
-    async fn get(&mut self, ctx: ReadingViewContext) -> Result<ResponseData> {
+    async fn get(&self, ctx: ReadingViewContext) -> Result<ResponseData> {
         let uid = ctx.uid;
         let (offset, len) = match ctx.reading_options {
             FILE_OFFSET_AND_LEN(offset, len) => (offset, len),
@@ -220,6 +220,7 @@ impl LocalDisk {
 
         let mut output_file= OpenOptions::new().append(true).create(true).open(absolute_path).await?;
         output_file.write_all(data.as_ref()).await?;
+        output_file.sync_data().await?;
 
         let mut val = self.partition_file_len.entry(relative_file_path).or_insert(0);
         *val += data.len() as i64;

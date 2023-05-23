@@ -46,7 +46,7 @@ impl MemoryStore {
     }
 
     // todo: make this used size as a var
-    pub async fn memory_usage_ratio(&mut self) -> f32 {
+    pub async fn memory_usage_ratio(&self) -> f32 {
         let (capacity, allocated, used) = self.budget.snapshot().await;
 
         let mut in_flight = 0i64;
@@ -65,11 +65,11 @@ impl MemoryStore {
         (allocated + used - in_flight) as f32 / capacity as f32
     }
 
-    pub async fn free_memory(&mut self, size: i64) -> Result<bool> {
+    pub async fn free_memory(&self, size: i64) -> Result<bool> {
         self.budget.free_used(size).await
     }
 
-    pub async fn get_required_spill_buffer(&mut self, target_len: i64) -> HashMap<PartitionedUId, Arc<Mutex<StagingBuffer>>> {
+    pub async fn get_required_spill_buffer(&self, target_len: i64) -> HashMap<PartitionedUId, Arc<Mutex<StagingBuffer>>> {
         // sort
         // get the spill buffers
 
@@ -110,7 +110,7 @@ impl MemoryStore {
         required_spill_buffers
     }
 
-    fn get_underlying_partition_buffer(&mut self, app_id: &String, shuffle_id: &i32, partition_id: &i32) -> Arc<Mutex<StagingBuffer>> {
+    fn get_underlying_partition_buffer(&self, app_id: &String, shuffle_id: &i32, partition_id: &i32) -> Arc<Mutex<StagingBuffer>> {
         let app_entry = self.state.get(app_id).unwrap();
         let shuffle_entry = app_entry.get(shuffle_id).unwrap();
         let partition_entry = shuffle_entry.get(partition_id).unwrap();
@@ -119,14 +119,14 @@ impl MemoryStore {
         buffer_cloned
     }
 
-    pub async fn release_in_flight_blocks_in_underlying_staging_buffer(&mut self, uid: PartitionedUId, in_flight_blocks_id: i64) -> Result<()> {
+    pub async fn release_in_flight_blocks_in_underlying_staging_buffer(&self, uid: PartitionedUId, in_flight_blocks_id: i64) -> Result<()> {
         let buffer = self.get_or_create_underlying_staging_buffer(uid);
         let mut buffer_ref = buffer.lock().await;
         buffer_ref.in_flight.remove(&in_flight_blocks_id);
         Ok(())
     }
 
-    pub fn get_or_create_underlying_staging_buffer(&mut self, uid: PartitionedUId) -> Arc<Mutex<StagingBuffer>> {
+    pub fn get_or_create_underlying_staging_buffer(&self, uid: PartitionedUId) -> Arc<Mutex<StagingBuffer>> {
         let app_id = uid.app_id;
         let shuffle_id = uid.shuffle_id;
         let partition_id = uid.partition_id;
@@ -139,24 +139,25 @@ impl MemoryStore {
 
 #[async_trait]
 impl Store for MemoryStore {
-    async fn insert(&mut self, ctx: WritingViewContext) -> Result<()> {
+    async fn insert(&self, ctx: WritingViewContext) -> Result<()> {
         let uid = ctx.uid;
-        let buffer = self.get_or_create_underlying_staging_buffer(uid);
-        let mut buffer = buffer.lock().await;
+        let buffer = self.get_or_create_underlying_staging_buffer(uid.clone());
+        let mut buffer_guarded = buffer.lock().await;
 
         let blocks = ctx.data_blocks;
-
         let mut added_size = 0i64;
         for block in blocks {
             added_size += block.length as i64;
-            buffer.blocks.push(block);
+            buffer_guarded.blocks.push(block);
         }
 
-        buffer.size += added_size;
+        let _ = self.budget.allocated_to_used(added_size).await;
+        buffer_guarded.size += added_size;
+
         Ok(())
     }
 
-    async fn get(&mut self, ctx: ReadingViewContext) -> Result<ResponseData> {
+    async fn get(&self, ctx: ReadingViewContext) -> Result<ResponseData> {
         let uid = ctx.uid;
         let buffer = self.get_or_create_underlying_staging_buffer(uid);
         let mut buffer = buffer.lock().await;
@@ -304,7 +305,7 @@ impl MemoryBudget {
         }
     }
 
-    pub async fn snapshot(&mut self) -> (i64, i64, i64) {
+    pub async fn snapshot(&self) -> (i64, i64, i64) {
         let mut inner = self.inner.lock().await;
         (
             inner.capacity,
@@ -327,7 +328,7 @@ impl MemoryBudget {
         }
     }
 
-    async fn allocated_to_used(&mut self, size: i64) -> Result<bool> {
+    async fn allocated_to_used(&self, size: i64) -> Result<bool> {
         let mut inner = self.inner.lock().await;
         if inner.allocated < size {
             inner.allocated = 0;
@@ -338,7 +339,7 @@ impl MemoryBudget {
         Ok(true)
     }
 
-    async fn free_used(&mut self, size: i64) -> Result<bool> {
+    async fn free_used(&self, size: i64) -> Result<bool> {
         let mut inner = self.inner.lock().await;
         if inner.used < size {
             inner.used = 0;
@@ -377,7 +378,7 @@ mod test {
     use crate::store::ResponseDataIndex::local;
 
     #[tokio::test]
-    async fn test_read_from_memory() {
+    async fn test_read_from_memory_when_data_in_flight() {
 
     }
 
