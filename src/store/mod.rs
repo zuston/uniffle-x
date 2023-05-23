@@ -107,9 +107,9 @@ pub struct DataSegment {
 pub trait Store {
     async fn insert(&self, ctx: WritingViewContext) -> Result<()>;
     async fn get(&self, ctx: ReadingViewContext) -> Result<ResponseData>;
-    async fn get_index(&mut self, ctx: ReadingIndexViewContext) -> Result<ResponseDataIndex>;
-    async fn require_buffer(&mut self, ctx: RequireBufferContext) -> Result<(bool, i64)>;
-    async fn purge(&mut self, app_id: String) -> Result<()>;
+    async fn get_index(&self, ctx: ReadingIndexViewContext) -> Result<ResponseDataIndex>;
+    async fn require_buffer(&self, ctx: RequireBufferContext) -> Result<(bool, i64)>;
+    async fn purge(&self, app_id: String) -> Result<()>;
 }
 
 pub struct StoreProvider {}

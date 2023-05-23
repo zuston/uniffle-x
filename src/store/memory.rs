@@ -223,11 +223,11 @@ impl Store for MemoryStore {
         ))
     }
 
-    async fn get_index(&mut self, ctx: ReadingIndexViewContext) -> Result<ResponseDataIndex> {
+    async fn get_index(&self, ctx: ReadingIndexViewContext) -> Result<ResponseDataIndex> {
         panic!("It should not be invoked.")
     }
 
-    async fn require_buffer(&mut self, ctx: RequireBufferContext) -> Result<(bool, i64)> {
+    async fn require_buffer(&self, ctx: RequireBufferContext) -> Result<(bool, i64)> {
         let result = self.budget.pre_allocate(ctx.size).await;
         if result.is_ok() {
             let mut val = self.memory_allocated_of_app.entry(ctx.uid.app_id).or_insert_with(||0);
@@ -236,7 +236,7 @@ impl Store for MemoryStore {
         result
     }
 
-    async fn purge(&mut self, app_id: String) -> Result<()> {
+    async fn purge(&self, app_id: String) -> Result<()> {
         match self.memory_allocated_of_app.get(&app_id) {
             Some(val) => {
                 self.budget.free_allocated(*val).await.unwrap();
@@ -315,7 +315,7 @@ impl MemoryBudget {
     }
 
 
-    async fn pre_allocate(&mut self, size: i64) -> Result<(bool, i64)> {
+    async fn pre_allocate(&self, size: i64) -> Result<(bool, i64)> {
         let mut inner = self.inner.lock().await;
         let free_space = inner.capacity - inner.allocated - inner.used;
         if free_space < size {
@@ -350,7 +350,7 @@ impl MemoryBudget {
         Ok(true)
     }
 
-    async fn free_allocated(&mut self, size: i64) -> Result<bool> {
+    async fn free_allocated(&self, size: i64) -> Result<bool> {
         let mut inner = self.inner.lock().await;
         if inner.allocated < size {
             inner.allocated = 0;

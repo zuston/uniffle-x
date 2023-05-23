@@ -119,15 +119,15 @@ impl Store for HybridStore {
         }
     }
 
-    async fn get_index(&mut self, ctx: ReadingIndexViewContext) -> Result<ResponseDataIndex> {
+    async fn get_index(&self, ctx: ReadingIndexViewContext) -> Result<ResponseDataIndex> {
         self.warm_store.get_index(ctx).await
     }
 
-    async fn require_buffer(&mut self, ctx: RequireBufferContext) -> Result<(bool, i64)> {
+    async fn require_buffer(&self, ctx: RequireBufferContext) -> Result<(bool, i64)> {
         self.hot_store.require_buffer(ctx).await
     }
 
-    async fn purge(&mut self, app_id: String) -> Result<()> {
+    async fn purge(&self, app_id: String) -> Result<()> {
         Ok(())
     }
 }

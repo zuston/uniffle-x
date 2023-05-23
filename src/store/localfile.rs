@@ -147,7 +147,7 @@ impl Store for LocalFileStore {
         }))
     }
 
-    async fn get_index(&mut self, ctx: ReadingIndexViewContext) -> Result<ResponseDataIndex> {
+    async fn get_index(&self, ctx: ReadingIndexViewContext) -> Result<ResponseDataIndex> {
         let uid = ctx.partition_id;
         let (data_file_path, index_file_path) = LocalFileStore::gen_relative_path(&uid);
         let _ = self.file_locks.entry(data_file_path.clone()).or_insert_with(|| RwLock::new(())).read().await;
@@ -169,11 +169,11 @@ impl Store for LocalFileStore {
         }))
     }
 
-    async fn require_buffer(&mut self, ctx: RequireBufferContext) -> Result<(bool, i64)> {
+    async fn require_buffer(&self, ctx: RequireBufferContext) -> Result<(bool, i64)> {
         panic!("It should happen")
     }
 
-    async fn purge(&mut self, app_id: String) -> Result<()> {
+    async fn purge(&self, app_id: String) -> Result<()> {
         todo!()
     }
 }
