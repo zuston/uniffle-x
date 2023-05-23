@@ -110,6 +110,7 @@ pub struct AppInner {
     latest_heartbeat_time: AtomicU64
 }
 
+#[derive(Debug, Clone)]
 pub struct WritingViewContext {
     pub uid: PartitionedUId,
     pub data_blocks: Vec<PartitionedDataBlock>

@@ -1,3 +1,4 @@
+extern crate core;
 
 use tonic::transport::Server;
 use crate::app::{AppManager, AppManagerRef};

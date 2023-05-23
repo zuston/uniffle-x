@@ -12,7 +12,8 @@ pub struct LocalfileStoreConfig {
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct HybridStoreConfig {
-    pub(crate) memory_should_spill_ratio: f32,
+    pub memory_spill_high_watermark: f32,
+    pub memory_spill_low_watermark: f32,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
