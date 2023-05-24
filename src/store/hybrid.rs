@@ -183,20 +183,12 @@ mod tests {
             partition_id: 0
         };
 
-        for _ in vec![1, 2] {
+        for i in 0..=3 {
             let writingCtx = WritingViewContext {
                 uid: uid.clone(),
                 data_blocks: vec![
                     PartitionedDataBlock {
-                        block_id: 0,
-                        length: data_len as i32,
-                        uncompress_length: 100,
-                        crc: 0,
-                        data: Bytes::copy_from_slice(data),
-                        task_attempt_id: 0
-                    },
-                    PartitionedDataBlock {
-                        block_id: 0,
+                        block_id: i,
                         length: data_len as i32,
                         uncompress_length: 100,
                         crc: 0,
@@ -210,23 +202,32 @@ mod tests {
 
         time::sleep(Duration::from_secs(1)).await;
 
-        let readingViewCtx = ReadingViewContext {
-            uid: uid.clone(),
-            reading_options: ReadingOptions::MEMORY_LAST_BLOCK_ID_AND_MAX_SIZE(-1, 24)
-        };
+        let mut last_block_id = -1;
+        // read data one by one
+        for idx in 0..=10 {
+            let readingViewCtx = ReadingViewContext {
+                uid: uid.clone(),
+                reading_options: ReadingOptions::MEMORY_LAST_BLOCK_ID_AND_MAX_SIZE(last_block_id, data_len as i64)
+            };
 
-        // let read_data = store.get(readingViewCtx).await;
-        // if read_data.is_err() {
-        //     panic!();
-        // }
-        //
-        // match read_data.unwrap() {
-        //     mem(mem_data) => {
-        //         assert_eq!(Bytes::copy_from_slice(data), mem_data.data);
-        //         let segments = mem_data.shuffle_data_block_segments;
-        //         assert_eq!(1, segments.len());
-        //     },
-        //     _ => panic!()
-        // }
+            let read_data = store.get(readingViewCtx).await;
+            if read_data.is_err() {
+                panic!();
+            }
+
+            match read_data.unwrap() {
+                mem(mem_data) => {
+                    if idx >= 4 {
+                        println!("idx: {}, len: {}", idx, mem_data.shuffle_data_block_segments.len());
+                        continue;
+                    }
+                    assert_eq!(Bytes::copy_from_slice(data), mem_data.data);
+                    let segments = mem_data.shuffle_data_block_segments;
+                    assert_eq!(1, segments.len());
+                    last_block_id = segments.get(0).unwrap().block_id;
+                },
+                _ => panic!()
+            }
+        }
     }
 }

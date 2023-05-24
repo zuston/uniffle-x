@@ -181,6 +181,7 @@ impl Store for MemoryStore {
         let options = ctx.reading_options;
         let (fetched_blocks, length) = match options {
             MEMORY_LAST_BLOCK_ID_AND_MAX_SIZE(last_block_id, max_size) => {
+                let mut last_block_id = last_block_id.clone();
                 let mut in_flight_flatten_blocks = vec![];
                 for (_, blocks) in buffer.in_flight.iter() {
                     for in_flight_block in blocks {
@@ -195,28 +196,19 @@ impl Store for MemoryStore {
                 }
                 let staging_blocks = Arc::new(staging_blocks);
 
-                let mut candidate_blocks = if last_block_id == -1 {
-                    let mut extends: Vec<&PartitionedDataBlock> = vec![];
-                    extends.extend_from_slice(&*staging_blocks);
-                    extends.extend_from_slice(&*in_flight_flatten_blocks);
-                    extends
-                } else {
-                    let mut staging_exist = false;
-                    let mut unread_staging_buffers = vec![];
-                    for block in staging_blocks.clone().iter() {
-                        if !staging_exist {
-                            if block.block_id == last_block_id {
-                                staging_exist = true;
-                            }
-                            continue;
-                        }
-                        unread_staging_buffers.push(*block);
-                    }
-
-                    if staging_exist {
-                        unread_staging_buffers.extend_from_slice(&*in_flight_flatten_blocks);
-                        unread_staging_buffers
+                let mut candidate_blocks = vec![];
+                // todo: optimize to the way of recursion
+                let mut exited = false;
+                while !exited {
+                    exited = true;
+                    if last_block_id == -1 {
+                        // Anyway, it will always read from in_flight to staging
+                        let mut extends: Vec<&PartitionedDataBlock> = vec![];
+                        extends.extend_from_slice(&*in_flight_flatten_blocks);
+                        extends.extend_from_slice(&*staging_blocks);
+                        candidate_blocks = extends;
                     } else {
+                        // check whether the in_fight_blocks exist the last_block_id
                         let mut in_flight_exist = false;
                         let mut unread_in_flight_blocks = vec![];
                         for block in in_flight_flatten_blocks.clone().iter() {
@@ -230,18 +222,34 @@ impl Store for MemoryStore {
                         }
 
                         if in_flight_exist {
-                            unread_in_flight_blocks.extend_from_slice(&*staging_blocks);
-                            unread_in_flight_blocks
-                        } else {
-                            // the block id is not found, re-read should be acted.
                             let mut extends: Vec<&PartitionedDataBlock> = vec![];
+                            extends.extend_from_slice(&*unread_in_flight_blocks);
                             extends.extend_from_slice(&*staging_blocks);
-                            extends.extend_from_slice(&*in_flight_flatten_blocks);
-                            extends
+                            candidate_blocks = extends;
+                        } else {
+                            let mut staging_exist = false;
+                            let mut unread_staging_buffers = vec![];
+                            for block in staging_blocks.clone().iter() {
+                                if !staging_exist {
+                                    if block.block_id == last_block_id {
+                                        staging_exist = true;
+                                    }
+                                    continue;
+                                }
+                                unread_staging_buffers.push(*block);
+                            }
+
+                            if staging_exist {
+                                candidate_blocks = unread_staging_buffers;
+                            } else {
+                                // when the last_block_id is not found, maybe the partial has been flush
+                                // to file. if having rest data, let's read it from the head
+                                exited = false;
+                                last_block_id = -1;
+                            }
                         }
                     }
-
-                };
+                }
 
                 self.read_partial_data_with_max_size_limit(candidate_blocks, max_size)
             }
@@ -500,6 +508,10 @@ mod test {
         assert_eq!(8, mem_data.shuffle_data_block_segments.get(0).unwrap().block_id);
         assert_eq!(9, mem_data.shuffle_data_block_segments.get(1).unwrap().block_id);
         assert_eq!(20, mem_data.shuffle_data_block_segments.get(2).unwrap().block_id);
+
+        // case6: read the end to return empty result
+        let mem_data = get_data_with_last_block_id(30, 20, &store, uid.clone()).await;
+        assert_eq!(0, mem_data.shuffle_data_block_segments.len());
     }
 
     async fn get_data_with_last_block_id(default_single_read_size: i64, last_block_id: i64, store: &MemoryStore, uid: PartitionedUId) -> PartitionedMemoryData {
