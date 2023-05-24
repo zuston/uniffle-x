@@ -134,22 +134,20 @@ impl Store for HybridStore {
 
 #[cfg(test)]
 mod tests {
+    use std::fs::read;
     use std::sync::Arc;
     use std::thread;
     use std::time::Duration;
     use bytes::Bytes;
     use log::info;
     use tokio::time;
-    use crate::app::{PartitionedUId, ReadingOptions, ReadingViewContext, RequireBufferContext, WritingViewContext};
+    use crate::app::{PartitionedUId, ReadingIndexViewContext, ReadingOptions, ReadingViewContext, RequireBufferContext, WritingViewContext};
     use crate::config::{Config, HybridStoreConfig, LocalfileStoreConfig, MemoryStoreConfig, StorageType};
     use crate::store::hybrid::HybridStore;
-    use crate::store::{PartitionedDataBlock, ResponseData, Store};
+    use crate::store::{PartitionedDataBlock, ResponseData, ResponseDataIndex, Store};
     use crate::store::ResponseData::mem;
 
-    #[tokio::test]
-    async fn test_insert_and_get() {
-        env_logger::init();
-
+    fn start_store() -> Arc<HybridStore> {
         let data = b"hello world!";
         let data_len = data.len();
 
@@ -176,13 +174,10 @@ mod tests {
 
         let mut store = Arc::new(HybridStore::from(config));
         // store.clone().start_flush_in_background();
+        store
+    }
 
-        let uid = PartitionedUId {
-            app_id: "1000".to_string(),
-            shuffle_id: 0,
-            partition_id: 0
-        };
-
+    async fn write_some_data(store: Arc<HybridStore>, uid: PartitionedUId, data_len: i32, data: &[u8; 12]) {
         for i in 0..=3 {
             let writingCtx = WritingViewContext {
                 uid: uid.clone(),
@@ -199,9 +194,82 @@ mod tests {
             };
             let _ = store.insert(writingCtx).await;
         }
+    }
 
-        time::sleep(Duration::from_secs(1)).await;
+    #[tokio::test]
+    async fn get_data_from_localfile() {
+        let data = b"hello world!";
+        let data_len = data.len();
 
+        let mut store = start_store();
+        store.clone().start_flush_in_background();
+
+        let uid = PartitionedUId {
+            app_id: "1000".to_string(),
+            shuffle_id: 0,
+            partition_id: 0
+        };
+        write_some_data(store.clone(), uid.clone(), data_len as i32, data).await;
+        tokio::time::sleep(Duration::from_secs(1)).await;
+
+        // case1: all data has been flushed to localfile. the data in memory should be empty
+        let mut last_block_id = -1;
+        let readingViewCtx = ReadingViewContext {
+            uid: uid.clone(),
+            reading_options: ReadingOptions::MEMORY_LAST_BLOCK_ID_AND_MAX_SIZE(last_block_id, data_len as i64)
+        };
+
+        let read_data = store.get(readingViewCtx).await;
+        if read_data.is_err() {
+            panic!();
+        }
+        let read_data = read_data.unwrap();
+        match read_data {
+            mem(mem_data) => {
+                assert_eq!(0, mem_data.shuffle_data_block_segments.len());
+            }
+            _ => panic!()
+        }
+
+        // case2: read data from localfile
+        // 1. read index file
+        // 2. read data
+        let indexViewCtx = ReadingIndexViewContext {
+            partition_id: uid.clone()
+        };
+        match store.get_index(indexViewCtx).await.unwrap() {
+            ResponseDataIndex::local(index) => {
+                // todo: get the offset for per-block
+            },
+            _ => panic!()
+        }
+        
+        let readingViewCtx = ReadingViewContext {
+            uid: uid.clone(),
+            reading_options: ReadingOptions::FILE_OFFSET_AND_LEN(0, data_len as i64)
+        };
+        let read_data = store.get(readingViewCtx).await.unwrap();
+        match read_data {
+            ResponseData::local(local_data) => {
+                assert_eq!(Bytes::copy_from_slice(data), local_data.data);
+            },
+            _ => panic!()
+        }
+    }
+
+    #[tokio::test]
+    async fn test_insert_and_get_from_memory() {
+        let data = b"hello world!";
+        let data_len = data.len();
+
+        let mut store = start_store();
+
+        let uid = PartitionedUId {
+            app_id: "1000".to_string(),
+            shuffle_id: 0,
+            partition_id: 0
+        };
+        write_some_data(store.clone(), uid.clone(), data_len as i32, data).await;
         let mut last_block_id = -1;
         // read data one by one
         for idx in 0..=10 {
