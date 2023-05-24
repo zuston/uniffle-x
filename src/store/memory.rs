@@ -80,7 +80,7 @@ impl MemoryStore {
             for shuffle_entry in app_entry.value().iter() {
                 for partition_entry in shuffle_entry.value().iter() {
                     let mut staging_size = 0;
-                    for block in &partition_entry.value().lock().await.blocks {
+                    for block in &partition_entry.value().lock().await.staging {
                         staging_size += block.length;
                     }
 
@@ -164,7 +164,7 @@ impl Store for MemoryStore {
         let mut added_size = 0i64;
         for block in blocks {
             added_size += block.length as i64;
-            buffer_guarded.blocks.push(block);
+            buffer_guarded.staging.push(block);
         }
 
         let _ = self.budget.allocated_to_used(added_size).await;
@@ -190,7 +190,7 @@ impl Store for MemoryStore {
                 let in_flight_flatten_blocks = Arc::new(in_flight_flatten_blocks);
 
                 let mut staging_blocks = vec![];
-                for block in &buffer.blocks {
+                for block in &buffer.staging {
                     staging_blocks.push(block);
                 }
                 let staging_blocks = Arc::new(staging_blocks);
@@ -304,7 +304,7 @@ impl Store for MemoryStore {
 #[derive(Debug, Clone)]
 pub struct StagingBuffer {
     pub size: i64,
-    pub blocks: Vec<PartitionedDataBlock>,
+    pub staging: Vec<PartitionedDataBlock>,
     pub in_flight: BTreeMap<i64, Vec<PartitionedDataBlock>>,
     id_generator: i64
 }
@@ -313,7 +313,7 @@ impl StagingBuffer {
     pub fn new() -> StagingBuffer {
         StagingBuffer {
             size: 0,
-            blocks: vec![],
+            staging: vec![],
             in_flight: BTreeMap::new(),
             id_generator: 0
         }
@@ -464,8 +464,8 @@ mod test {
         // case4: some data are in inflight blocks
         let mut buffer = store.get_or_create_underlying_staging_buffer(uid.clone());
         let mut buffer = buffer.lock().await;
-        let owned = buffer.blocks.to_owned();
-        buffer.blocks.clear();
+        let owned = buffer.staging.to_owned();
+        buffer.staging.clear();
         let mut idx = 0;
         for block in owned {
             buffer.in_flight.insert(idx, vec![block]);
@@ -483,7 +483,7 @@ mod test {
         // read it from the block id 9, and read size of 30
         let mut buffer = store.get_or_create_underlying_staging_buffer(uid.clone());
         let mut buffer = buffer.lock().await;
-        buffer.blocks.push(
+        buffer.staging.push(
             PartitionedDataBlock {
                 block_id: 20,
                 length: 10,

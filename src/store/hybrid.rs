@@ -94,13 +94,13 @@ impl Store for HybridStore {
 
             for (partition_id, buffer) in buffers {
                 let mut buffer_inner = buffer.lock().await;
-                let blocks = buffer_inner.to_owned().blocks;
+                let blocks = buffer_inner.to_owned().staging;
                 let writingCtx = WritingViewContext {
                     uid: partition_id,
                     data_blocks: blocks.clone()
                 };
                 let in_flight_block_id = buffer_inner.add_blocks_to_send(blocks).unwrap();
-                buffer_inner.blocks.clear();
+                buffer_inner.staging.clear();
 
                 let _ = self.memory_spill_send.send(SpillMessage {
                     ctx: writingCtx,
