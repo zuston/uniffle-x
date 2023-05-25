@@ -57,9 +57,6 @@ mod test {
 
         [localfile_store]
         data_paths = ["/data1/uniffle"]
-
-        [hybrid_store]
-        memory_should_spill_ratio = 0.7
         "#;
 
         let decoded: Config = toml::from_str(toml_str).unwrap();

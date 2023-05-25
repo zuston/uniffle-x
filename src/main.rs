@@ -5,6 +5,7 @@ use crate::app::{AppManager, AppManagerRef};
 use crate::grpc::DefaultShuffleServer;
 use crate::proto::uniffle::shuffle_server_server::ShuffleServerServer;
 use anyhow::{Result, anyhow};
+use log::info;
 
 pub mod proto;
 pub mod app;
@@ -16,6 +17,8 @@ mod config;
 #[tokio::main]
 async fn main() -> Result<()> {
     env_logger::init();
+
+    info!("Starting GRpc server......");
 
     let appManagerRef = AppManager::get_ref();
 
