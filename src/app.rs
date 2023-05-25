@@ -13,10 +13,12 @@ use dashmap::mapref::one::Ref;
 use tokio::runtime::Runtime;
 use tonic::codegen::ok;
 use tracing::callsite::register;
+use crate::config::Config;
 use crate::error::DatanodeError;
 use crate::proto::uniffle::ShuffleData;
 use crate::store;
-use crate::store::{PartitionedData, PartitionedDataBlock, ResponseData, ResponseDataIndex, Store};
+use crate::store::{PartitionedData, PartitionedDataBlock, ResponseData, ResponseDataIndex, Store, StoreProvider};
+use crate::store::hybrid::HybridStore;
 use crate::store::memory::MemoryStore;
 
 #[derive(Debug, Clone)]
@@ -38,11 +40,11 @@ struct AppConfigOptions {
 #[derive(Clone)]
 pub struct App {
     app: Arc<AppInner>,
-    store: Arc<MemoryStore>
+    store: Arc<HybridStore>
 }
 
 impl App {
-    fn from(app_id: String, config_options: Option<AppConfigOptions>, store: Arc<MemoryStore>) -> Self {
+    fn from(app_id: String, config_options: Option<AppConfigOptions>, store: Arc<HybridStore>) -> Self {
         App {
             app: Arc::new(
                 AppInner {
@@ -81,18 +83,15 @@ impl App {
     }
 
     pub async fn insert(&mut self, ctx: WritingViewContext) -> Result<()> {
-        let mut store_mut = Arc::make_mut(&mut self.store);
-        store_mut.insert(ctx).await
+        self.store.insert(ctx).await
     }
 
     pub async fn select(&mut self, ctx: ReadingViewContext) -> Result<ResponseData> {
-        let mut store_mut = Arc::make_mut(&mut self.store);
-        store_mut.get(ctx).await
+        self.store.get(ctx).await
     }
 
     pub async fn list_index(&mut self, ctx: ReadingIndexViewContext) -> Result<ResponseDataIndex> {
-        let mut store_mut = Arc::make_mut(&mut self.store);
-        store_mut.get_index(ctx).await
+        self.store.get_index(ctx).await
     }
 
     pub async fn purge(&self, app_id: String, shuffle_id: Option<i32>) -> Result<()> {
@@ -153,7 +152,7 @@ pub struct AppManager {
     apps: DashMap<String, App>,
     receiver: crossbeam_channel::Receiver<PurgeEvent>,
     sender: crossbeam_channel::Sender<PurgeEvent>,
-    store: Arc<MemoryStore>
+    store: Arc<HybridStore>
 }
 
 impl Default for AppManager {
@@ -163,9 +162,11 @@ impl Default for AppManager {
             apps: DashMap::new(),
             receiver,
             sender,
-            store: Arc::new(MemoryStore::new(
-                1024 * 1024 * 1024 * 100
-            ))
+            store: Arc::new(
+                StoreProvider::get(
+                    Config::create_from_env()
+                )
+            )
         };
         manager
     }

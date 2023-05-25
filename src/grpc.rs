@@ -72,7 +72,7 @@ impl ShuffleServer for DefaultShuffleServer {
 
             match app.insert(ctx).await {
                 Err(error) => error!("Errors on putting data, app_id: {}", app_id.clone()),
-                _ => todo!()
+                _ => continue
             }
         }
 

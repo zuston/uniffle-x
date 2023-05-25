@@ -29,6 +29,7 @@ use crate::proto::uniffle::{ShuffleBlock, ShuffleData};
 use crate::store::ResponseDataIndex::local;
 use async_trait::async_trait;
 use crate::config::Config;
+use crate::store::hybrid::HybridStore;
 use crate::store::memory::MemoryStore;
 
 #[derive(Debug)]
@@ -105,6 +106,7 @@ pub struct DataSegment {
 
 #[async_trait]
 pub trait Store {
+    fn start(self: Arc<Self>);
     async fn insert(&self, ctx: WritingViewContext) -> Result<()>;
     async fn get(&self, ctx: ReadingViewContext) -> Result<ResponseData>;
     async fn get_index(&self, ctx: ReadingIndexViewContext) -> Result<ResponseDataIndex>;
@@ -115,7 +117,7 @@ pub trait Store {
 pub struct StoreProvider {}
 
 impl StoreProvider {
-    fn get(config: Config) -> impl Store {
-        MemoryStore::new(1023)
+    pub fn get(config: Config) -> HybridStore {
+        HybridStore::from(config)
     }
 }

@@ -15,7 +15,6 @@ use async_trait::async_trait;
 use tokio::sync::Mutex;
 use crate::config::MemoryStoreConfig;
 
-#[derive(Clone)]
 pub struct MemoryStore {
     // todo: change to RW lock
     state: DashMap<String, DashMap<i32, DashMap<i32, Arc<Mutex<StagingBuffer>>>>>,
@@ -84,7 +83,7 @@ impl MemoryStore {
                         staging_size += block.length;
                     }
 
-                    let mut valset = sorted_tree_map.entry(staging_size).or_insert_with(||vec![]);
+                    let valset = sorted_tree_map.entry(staging_size).or_insert_with(||vec![]);
                     valset.push((app_entry.key().clone(), shuffle_entry.key().clone(), partition_entry.key().clone()));
                 }
             }
@@ -155,6 +154,10 @@ impl MemoryStore {
 
 #[async_trait]
 impl Store for MemoryStore {
+    fn start(self: Arc<Self>) {
+        todo!()
+    }
+
     async fn insert(&self, ctx: WritingViewContext) -> Result<()> {
         let uid = ctx.uid;
         let buffer = self.get_or_create_underlying_staging_buffer(uid.clone());

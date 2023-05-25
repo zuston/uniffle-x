@@ -71,6 +71,10 @@ impl LocalFileStore {
 
 #[async_trait]
 impl Store for LocalFileStore {
+    fn start(self: Arc<Self>) {
+        todo!()
+    }
+
     async fn insert(&self, ctx: WritingViewContext) -> Result<()> {
         let uid = ctx.uid;
         let (data_file_path, index_file_path) = LocalFileStore::gen_relative_path(&uid);

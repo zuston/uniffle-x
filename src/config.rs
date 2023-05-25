@@ -1,3 +1,5 @@
+use std::fs;
+use std::path::Path;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
@@ -17,7 +19,7 @@ pub struct HybridStoreConfig {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
-pub(crate) struct Config {
+pub struct Config {
     pub memory_store: Option<MemoryStoreConfig>,
     pub localfile_store: Option<LocalfileStoreConfig>,
     pub hybrid_store: Option<HybridStoreConfig>,
@@ -32,8 +34,24 @@ pub enum StorageType {
     MEMORY_LOCALFILE
 }
 
+const CONFIG_FILE_PATH_KEY: &str = "DATANODE_CONFIG_PATH";
+
 impl Config {
-    fn get(conf_path: &str) -> Config {
+    pub fn create_from_env() -> Config {
+        let path = match std::env::var(CONFIG_FILE_PATH_KEY) {
+            Ok(val) => val,
+            _ => panic!("config path must be set in env args. key: {}", CONFIG_FILE_PATH_KEY)
+        };
+
+        let path = Path::new(&path);
+
+        // Read the file content as a string
+        let file_content = fs::read_to_string(path).expect("Failed to read file");
+
+        toml::from_str(&file_content).unwrap()
+    }
+
+    pub fn create(conf_path: &str) -> Config {
         Config {
             memory_store: None,
             localfile_store: None,

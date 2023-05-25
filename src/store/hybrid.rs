@@ -17,7 +17,7 @@ use crate::config;
 use crate::config::{Config, HybridStoreConfig, LocalfileStoreConfig};
 use crate::store::ResponseData::mem;
 
-struct HybridStore {
+pub struct HybridStore {
     // Box<dyn Store> will build fail
     hot_store: Box<MemoryStore>,
     warm_store: Box<LocalFileStore>,
@@ -36,7 +36,7 @@ unsafe impl Send for HybridStore {}
 unsafe impl Sync for HybridStore {}
 
 impl HybridStore {
-    fn from(config: Config) -> Self {
+    pub fn from(config: Config) -> Self {
         let (send, recv) = async_channel::unbounded();
         let mut store = HybridStore {
             hot_store: Box::new(MemoryStore::from(config.memory_store.unwrap())),
@@ -47,21 +47,6 @@ impl HybridStore {
             memory_spill_send: send
         };
         store
-    }
-
-    /// Using the async_channel to keep the immutable self to
-    /// the self as the Arc<xxx> rather than mpsc::channel, which
-    /// uses the recv(&mut self). I don't hope so.
-    fn start_flush_in_background(self: Arc<HybridStore>) {
-        let store = self.clone();
-        tokio::spawn(async move {
-            while let Ok(message) = store.memory_spill_recv.recv().await {
-                match store.memory_spill_to_localfile(message.ctx, message.id).await {
-                    Ok(msg) => info!("{}", msg),
-                    Err(error) => error!("Errors on spilling memory data to localfile. error: {:#?}", error)
-                }
-            }
-        });
     }
 
     async fn memory_spill_to_localfile(&self, ctx: WritingViewContext, in_flight_blocks_id: i64) -> Result<String> {
@@ -82,6 +67,21 @@ impl HybridStore {
 
 #[async_trait]
 impl Store for HybridStore {
+    /// Using the async_channel to keep the immutable self to
+    /// the self as the Arc<xxx> rather than mpsc::channel, which
+    /// uses the recv(&mut self). I don't hope so.
+    fn start(self: Arc<HybridStore>) {
+        let store = self.clone();
+        tokio::spawn(async move {
+            while let Ok(message) = store.memory_spill_recv.recv().await {
+                match store.memory_spill_to_localfile(message.ctx, message.id).await {
+                    Ok(msg) => info!("{}", msg),
+                    Err(error) => error!("Errors on spilling memory data to localfile. error: {:#?}", error)
+                }
+            }
+        });
+    }
+
     // todo: check the consistency problems
     async fn insert(&self, ctx: WritingViewContext) -> Result<()> {
         let insert_result = self.hot_store.insert(ctx).await;
@@ -201,7 +201,7 @@ mod tests {
         let data_len = data.len();
 
         let mut store = start_store();
-        store.clone().start_flush_in_background();
+        store.clone().start();
 
         let uid = PartitionedUId {
             app_id: "1000".to_string(),
