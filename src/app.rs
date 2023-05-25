@@ -82,16 +82,20 @@ impl App {
         Ok(())
     }
 
-    pub async fn insert(&mut self, ctx: WritingViewContext) -> Result<()> {
+    pub async fn insert(&self, ctx: WritingViewContext) -> Result<()> {
         self.store.insert(ctx).await
     }
 
-    pub async fn select(&mut self, ctx: ReadingViewContext) -> Result<ResponseData> {
+    pub async fn select(&self, ctx: ReadingViewContext) -> Result<ResponseData> {
         self.store.get(ctx).await
     }
 
-    pub async fn list_index(&mut self, ctx: ReadingIndexViewContext) -> Result<ResponseDataIndex> {
+    pub async fn list_index(&self, ctx: ReadingIndexViewContext) -> Result<ResponseDataIndex> {
         self.store.get_index(ctx).await
+    }
+
+    pub async fn require_buffer(&self, ctx: RequireBufferContext) -> Result<(bool, i64)> {
+        self.store.require_buffer(ctx).await
     }
 
     pub async fn purge(&self, app_id: String, shuffle_id: Option<i32>) -> Result<()> {
@@ -155,17 +159,15 @@ pub struct AppManager {
     store: Arc<HybridStore>
 }
 
-impl Default for AppManager {
-    fn default() -> Self {
+impl AppManager {
+    fn new(config: Config) -> Self {
         let (sender, receiver) = crossbeam_channel::unbounded();
         let manager = AppManager {
             apps: DashMap::new(),
             receiver,
             sender,
             store: Arc::new(
-                StoreProvider::get(
-                    Config::create_from_env()
-                )
+                StoreProvider::get(config)
             )
         };
         manager
@@ -173,8 +175,8 @@ impl Default for AppManager {
 }
 
 impl AppManager {
-    pub(crate) fn get_ref() -> AppManagerRef {
-        let app_ref = Arc::new(AppManager::default());
+    pub(crate) fn get_ref(config: Config) -> AppManagerRef {
+        let app_ref = Arc::new(AppManager::new(config));
 
         let app_manager_ref_cloned = app_ref.clone();
 
@@ -242,13 +244,38 @@ mod test {
     use std::time::{Duration, Instant};
     use dashmap::DashMap;
     use crate::app::{AppManager, PartitionedUId, ReadingOptions, ReadingViewContext, WritingViewContext};
+    use crate::Config;
+    use crate::config::{HybridStoreConfig, LocalfileStoreConfig, MemoryStoreConfig};
     use crate::store::{PartitionedDataBlock, ResponseData};
+    use crate::store::hybrid::HybridStore;
+
+    fn mock_config() -> Config {
+        let temp_dir = tempdir::TempDir::new("test_local_store").unwrap();
+        let temp_path = temp_dir.path().to_str().unwrap().to_string();
+        println!("init local file path: {}", temp_path);
+
+        let config = Config {
+            memory_store: Some(MemoryStoreConfig {
+                capacity: 1024 * 1024
+            }),
+            localfile_store: Some(LocalfileStoreConfig {
+                data_paths: vec![temp_path]
+            }),
+            hybrid_store: Some(HybridStoreConfig {
+                memory_spill_high_watermark: 0.8,
+                memory_spill_low_watermark: 0.7
+            }),
+            store_type: None,
+            grpc_port: None
+        };
+        config
+    }
 
     #[tokio::test]
     async fn app_put_get_purge_test() {
         let app_id = "app_put_get_purge_test-----id";
 
-        let appManagerRef = AppManager::get_ref().clone();
+        let appManagerRef = AppManager::get_ref(mock_config()).clone();
         appManagerRef.register(app_id.clone().into(), 1).unwrap();
 
         if let Some(mut app) = appManagerRef.get_app("app_id".into()) {
@@ -303,7 +330,7 @@ mod test {
 
     #[tokio::test]
     async fn app_manager_test() {
-        let appManagerRef = AppManager::get_ref().clone();
+        let appManagerRef = AppManager::get_ref(mock_config()).clone();
         appManagerRef.register("app_id".into(), 1).unwrap();
         if let Some(app) = appManagerRef.get_app("app_id".into()) {
             assert_eq!("app_id", app.app.app_id);

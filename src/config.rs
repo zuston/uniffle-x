@@ -24,7 +24,9 @@ pub struct Config {
     pub localfile_store: Option<LocalfileStoreConfig>,
     pub hybrid_store: Option<HybridStoreConfig>,
 
-    pub store_type: Option<StorageType>
+    pub store_type: Option<StorageType>,
+
+    pub grpc_port: Option<i32>
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
@@ -56,7 +58,8 @@ impl Config {
             memory_store: None,
             localfile_store: None,
             hybrid_store: None,
-            store_type: None
+            store_type: None,
+            grpc_port: None
         }
     }
 }

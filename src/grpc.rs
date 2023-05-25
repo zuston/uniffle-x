@@ -1,12 +1,13 @@
 use log::error;
+use toml::Value::String;
 use tonic::{Request, Response, Status};
-use crate::app::{PartitionedUId, WritingViewContext};
+use crate::app::{PartitionedUId, ReadingIndexViewContext, WritingViewContext};
 use crate::AppManagerRef;
 use crate::proto::uniffle::shuffle_server_server::ShuffleServer;
 use crate::proto::uniffle::{AppHeartBeatRequest, AppHeartBeatResponse, FinishShuffleRequest, FinishShuffleResponse, GetLocalShuffleDataRequest, GetLocalShuffleDataResponse, GetLocalShuffleIndexRequest, GetLocalShuffleIndexResponse, GetMemoryShuffleDataRequest, GetMemoryShuffleDataResponse, GetShuffleResultForMultiPartRequest, GetShuffleResultForMultiPartResponse, GetShuffleResultRequest, GetShuffleResultResponse, ReportShuffleResultRequest, ReportShuffleResultResponse, RequireBufferRequest, RequireBufferResponse, SendShuffleDataRequest, SendShuffleDataResponse, ShuffleCommitRequest, ShuffleCommitResponse, ShuffleRegisterRequest, ShuffleRegisterResponse, ShuffleUnregisterRequest, ShuffleUnregisterResponse};
-use crate::store::{PartitionedData, PartitionedDataBlock};
+use crate::proto::uniffle::coordinator_server_server::CoordinatorServer;
+use crate::store::{PartitionedData, PartitionedDataBlock, ResponseDataIndex};
 
-#[derive(Default)]
 pub struct DefaultShuffleServer {
     appManagerRef: AppManagerRef
 }
@@ -36,7 +37,13 @@ impl ShuffleServer for DefaultShuffleServer {
     }
 
     async fn unregister_shuffle(&self, request: Request<ShuffleUnregisterRequest>) -> Result<Response<ShuffleUnregisterResponse>, Status> {
-        todo!()
+        // todo
+        Ok(
+            Response::new(ShuffleUnregisterResponse {
+                status: 0,
+                ret_msg: "".to_string()
+            })
+        )
     }
 
     async fn send_shuffle_data(&self, request: Request<SendShuffleDataRequest>) -> Result<Response<SendShuffleDataResponse>, Status> {
@@ -76,6 +83,7 @@ impl ShuffleServer for DefaultShuffleServer {
             }
         }
 
+        // todo: if the data sent failed, return the error code to client side
         Ok(
             Response::new(SendShuffleDataResponse {
                 status: 0,
@@ -85,7 +93,52 @@ impl ShuffleServer for DefaultShuffleServer {
     }
 
     async fn get_local_shuffle_index(&self, request: Request<GetLocalShuffleIndexRequest>) -> Result<Response<GetLocalShuffleIndexResponse>, Status> {
-        todo!()
+        let req = request.into_inner();
+        let app_id = req.app_id;
+        let shuffle_id: i32 = req.shuffle_id;
+        let partition_id = req.partition_id;
+        let partition_num = req.partition_num;
+        let partition_per_range = req.partition_num_per_range;
+
+        let app_option = self.appManagerRef.get_app(&app_id);
+
+        if app_option.is_none() {
+            return Ok(
+                Response::new(GetLocalShuffleIndexResponse {
+                    index_data: Default::default(),
+                    status: 1,
+                    ret_msg: "Partition not found".to_string(),
+                    data_file_len: 0
+                })
+            );
+        }
+
+        let app = app_option.unwrap();
+
+        let data_index_wrapper = app.list_index(ReadingIndexViewContext {
+            partition_id: PartitionedUId::from(app_id, shuffle_id, partition_id)
+        }).await.unwrap();
+
+        match data_index_wrapper {
+            ResponseDataIndex::local(data_index) => {
+                Ok(
+                    Response::new(GetLocalShuffleIndexResponse {
+                        index_data: data_index.index_data,
+                        status: 0,
+                        ret_msg: "".to_string(),
+                        data_file_len: data_index.data_file_len
+                    })
+                )
+            },
+            _ => Ok(
+                Response::new(GetLocalShuffleIndexResponse {
+                    index_data: Default::default(),
+                    status: 1,
+                    ret_msg: "index file not found".to_string(),
+                    data_file_len: 0
+                })
+            )
+        }
     }
 
     async fn get_local_shuffle_data(&self, request: Request<GetLocalShuffleDataRequest>) -> Result<Response<GetLocalShuffleDataResponse>, Status> {

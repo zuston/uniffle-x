@@ -166,7 +166,8 @@ mod tests {
                 memory_spill_high_watermark: 0.8,
                 memory_spill_low_watermark: 0.2,
             }),
-            store_type: Some(StorageType::MEMORY_LOCALFILE)
+            store_type: Some(StorageType::MEMORY_LOCALFILE),
+            grpc_port: None
         };
 
         /// The hybrid store will flush the memory data to file when
