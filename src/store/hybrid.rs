@@ -138,7 +138,7 @@ mod tests {
     use std::sync::Arc;
     use std::thread;
     use std::time::Duration;
-    use bytes::Bytes;
+    use bytes::{Buf, Bytes};
     use log::info;
     use tokio::time;
     use crate::app::{PartitionedUId, ReadingIndexViewContext, ReadingOptions, ReadingViewContext, RequireBufferContext, WritingViewContext};
@@ -173,7 +173,6 @@ mod tests {
         /// the data reaches the number of 4
 
         let mut store = Arc::new(HybridStore::from(config));
-        // store.clone().start_flush_in_background();
         store
     }
 
@@ -239,19 +238,27 @@ mod tests {
         };
         match store.get_index(indexViewCtx).await.unwrap() {
             ResponseDataIndex::local(index) => {
-                // todo: get the offset for per-block
-            },
-            _ => panic!()
-        }
-        
-        let readingViewCtx = ReadingViewContext {
-            uid: uid.clone(),
-            reading_options: ReadingOptions::FILE_OFFSET_AND_LEN(0, data_len as i64)
-        };
-        let read_data = store.get(readingViewCtx).await.unwrap();
-        match read_data {
-            ResponseData::local(local_data) => {
-                assert_eq!(Bytes::copy_from_slice(data), local_data.data);
+                let mut index_data = index.index_data;
+                while index_data.has_remaining() {
+                    let offset = index_data.get_i64();
+                    let length = index_data.get_i32();
+                    let uncompress = index_data.get_i32();
+                    let crc = index_data.get_i64();
+                    let block_id = index_data.get_i64();
+                    let task_id = index_data.get_i64();
+
+                    let readingViewCtx = ReadingViewContext {
+                        uid: uid.clone(),
+                        reading_options: ReadingOptions::FILE_OFFSET_AND_LEN(offset, length as i64)
+                    };
+                    let read_data = store.get(readingViewCtx).await.unwrap();
+                    match read_data {
+                        ResponseData::local(local_data) => {
+                            assert_eq!(Bytes::copy_from_slice(data), local_data.data);
+                        },
+                        _ => panic!()
+                    }
+                }
             },
             _ => panic!()
         }
