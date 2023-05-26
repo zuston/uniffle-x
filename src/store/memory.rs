@@ -1,7 +1,6 @@
 use std::cell::Ref;
 use std::collections::{BTreeMap, HashMap};
 use std::hash::Hash;
-use std::os::macos::raw::stat;
 use std::slice::Iter;
 use std::sync::{Arc};
 use std::sync::atomic::{AtomicI64, Ordering};

@@ -13,7 +13,7 @@ use log::info;
 use tracing_subscriber::fmt::format;
 use crate::config::Config;
 use crate::proto::uniffle::coordinator_server_client::CoordinatorServerClient;
-use crate::proto::uniffle::{ShuffleServerHeartBeatRequest, ShuffleServerId};
+use crate::proto::uniffle::{ShuffleServerHeartBeatRequest, ShuffleServerId, StatusCode};
 
 pub mod proto;
 pub mod app;
@@ -44,7 +44,6 @@ async fn schedule_coordinator_report(app_manager: AppManagerRef, coordinator_quo
         };
 
         let mut client_1 = CoordinatorServerClient::connect(format!("http://{}", coordinator_quorum.get(0).unwrap())).await.unwrap();
-        let mut client_2 = CoordinatorServerClient::connect(format!("http://{}", coordinator_quorum.get(1).unwrap())).await.unwrap();
 
         // let mut multi_coordinator_clients = vec![
         // ];
@@ -68,19 +67,6 @@ async fn schedule_coordinator_report(app_manager: AppManagerRef, coordinator_quo
                 storage_info: Default::default()
             });
             client_1.heartbeat(request).await.unwrap();
-
-            let request = tonic::Request::new(ShuffleServerHeartBeatRequest {
-                server_id: Some(shuffle_server_id.clone()),
-                used_memory: 0,
-                pre_allocated_memory: 0,
-                available_memory: 1024 * 1024 * 1024 * 10,
-                event_num_in_flush: 0,
-                tags: vec!["ss_v4".to_string()],
-                is_healthy: Some(true),
-                status: 0,
-                storage_info: Default::default()
-            });
-            client_2.heartbeat(request).await.unwrap();
         }
     });
 
@@ -111,10 +97,16 @@ async fn main() -> Result<()> {
 #[cfg(test)]
 mod test {
     use crate::get_local_ip;
+    use crate::proto::uniffle::shuffle_server_client::ShuffleServerClient;
 
     #[test]
     fn get_local_ip_test() {
         let ip = get_local_ip().unwrap();
         println!("{}", ip.to_string());
     }
+
+    // #[test]
+    // async fn put_get_in_local_grpc() {
+    //     let client = ShuffleServerClient::connect("http://127.0.0.0:19999").await?;
+    // }
 }

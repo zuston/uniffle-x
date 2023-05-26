@@ -18,7 +18,7 @@
 syntax = "proto3";
 import "google/protobuf/empty.proto";
 import "google/protobuf/wrappers.proto";
-package uniffle;
+package rss.common;
 
 service ShuffleServer {
   rpc registerShuffle (ShuffleRegisterRequest) returns (ShuffleRegisterResponse);

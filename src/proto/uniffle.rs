@@ -405,15 +405,15 @@ pub struct StorageInfo {
 /// Nested message and enum types in `StorageInfo`.
 pub mod storage_info {
     #[derive(
-        Clone,
-        Copy,
-        Debug,
-        PartialEq,
-        Eq,
-        Hash,
-        PartialOrd,
-        Ord,
-        ::prost::Enumeration
+    Clone,
+    Copy,
+    Debug,
+    PartialEq,
+    Eq,
+    Hash,
+    PartialOrd,
+    Ord,
+    ::prost::Enumeration
     )]
     #[repr(i32)]
     pub enum StorageMedia {
@@ -451,15 +451,15 @@ pub mod storage_info {
         }
     }
     #[derive(
-        Clone,
-        Copy,
-        Debug,
-        PartialEq,
-        Eq,
-        Hash,
-        PartialOrd,
-        Ord,
-        ::prost::Enumeration
+    Clone,
+    Copy,
+    Debug,
+    PartialEq,
+    Eq,
+    Hash,
+    PartialOrd,
+    Ord,
+    ::prost::Enumeration
     )]
     #[repr(i32)]
     pub enum StorageStatus {
@@ -864,20 +864,20 @@ pub mod shuffle_server_client {
     impl ShuffleServerClient<tonic::transport::Channel> {
         /// Attempt to create a new client by connecting to a given endpoint.
         pub async fn connect<D>(dst: D) -> Result<Self, tonic::transport::Error>
-        where
-            D: TryInto<tonic::transport::Endpoint>,
-            D::Error: Into<StdError>,
+            where
+                D: TryInto<tonic::transport::Endpoint>,
+                D::Error: Into<StdError>,
         {
             let conn = tonic::transport::Endpoint::new(dst)?.connect().await?;
             Ok(Self::new(conn))
         }
     }
     impl<T> ShuffleServerClient<T>
-    where
-        T: tonic::client::GrpcService<tonic::body::BoxBody>,
-        T::Error: Into<StdError>,
-        T::ResponseBody: Body<Data = Bytes> + Send + 'static,
-        <T::ResponseBody as Body>::Error: Into<StdError> + Send,
+        where
+            T: tonic::client::GrpcService<tonic::body::BoxBody>,
+            T::Error: Into<StdError>,
+            T::ResponseBody: Body<Data = Bytes> + Send + 'static,
+            <T::ResponseBody as Body>::Error: Into<StdError> + Send,
     {
         pub fn new(inner: T) -> Self {
             let inner = tonic::client::Grpc::new(inner);
@@ -891,18 +891,18 @@ pub mod shuffle_server_client {
             inner: T,
             interceptor: F,
         ) -> ShuffleServerClient<InterceptedService<T, F>>
-        where
-            F: tonic::service::Interceptor,
-            T::ResponseBody: Default,
-            T: tonic::codegen::Service<
-                http::Request<tonic::body::BoxBody>,
-                Response = http::Response<
-                    <T as tonic::client::GrpcService<tonic::body::BoxBody>>::ResponseBody,
+            where
+                F: tonic::service::Interceptor,
+                T::ResponseBody: Default,
+                T: tonic::codegen::Service<
+                    http::Request<tonic::body::BoxBody>,
+                    Response = http::Response<
+                        <T as tonic::client::GrpcService<tonic::body::BoxBody>>::ResponseBody,
+                    >,
                 >,
-            >,
-            <T as tonic::codegen::Service<
-                http::Request<tonic::body::BoxBody>,
-            >>::Error: Into<StdError> + Send + Sync,
+                <T as tonic::codegen::Service<
+                    http::Request<tonic::body::BoxBody>,
+                >>::Error: Into<StdError> + Send + Sync,
         {
             ShuffleServerClient::new(InterceptedService::new(inner, interceptor))
         }
@@ -955,11 +955,11 @@ pub mod shuffle_server_client {
                 })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static(
-                "/uniffle.ShuffleServer/registerShuffle",
+                "/rss.common.ShuffleServer/registerShuffle",
             );
             let mut req = request.into_request();
             req.extensions_mut()
-                .insert(GrpcMethod::new("uniffle.ShuffleServer", "registerShuffle"));
+                .insert(GrpcMethod::new("rss.common.ShuffleServer", "registerShuffle"));
             self.inner.unary(req, path, codec).await
         }
         pub async fn unregister_shuffle(
@@ -980,11 +980,11 @@ pub mod shuffle_server_client {
                 })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static(
-                "/uniffle.ShuffleServer/unregisterShuffle",
+                "/rss.common.ShuffleServer/unregisterShuffle",
             );
             let mut req = request.into_request();
             req.extensions_mut()
-                .insert(GrpcMethod::new("uniffle.ShuffleServer", "unregisterShuffle"));
+                .insert(GrpcMethod::new("rss.common.ShuffleServer", "unregisterShuffle"));
             self.inner.unary(req, path, codec).await
         }
         pub async fn send_shuffle_data(
@@ -1005,11 +1005,11 @@ pub mod shuffle_server_client {
                 })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static(
-                "/uniffle.ShuffleServer/sendShuffleData",
+                "/rss.common.ShuffleServer/sendShuffleData",
             );
             let mut req = request.into_request();
             req.extensions_mut()
-                .insert(GrpcMethod::new("uniffle.ShuffleServer", "sendShuffleData"));
+                .insert(GrpcMethod::new("rss.common.ShuffleServer", "sendShuffleData"));
             self.inner.unary(req, path, codec).await
         }
         pub async fn get_local_shuffle_index(
@@ -1030,12 +1030,12 @@ pub mod shuffle_server_client {
                 })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static(
-                "/uniffle.ShuffleServer/getLocalShuffleIndex",
+                "/rss.common.ShuffleServer/getLocalShuffleIndex",
             );
             let mut req = request.into_request();
             req.extensions_mut()
                 .insert(
-                    GrpcMethod::new("uniffle.ShuffleServer", "getLocalShuffleIndex"),
+                    GrpcMethod::new("rss.common.ShuffleServer", "getLocalShuffleIndex"),
                 );
             self.inner.unary(req, path, codec).await
         }
@@ -1057,11 +1057,11 @@ pub mod shuffle_server_client {
                 })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static(
-                "/uniffle.ShuffleServer/getLocalShuffleData",
+                "/rss.common.ShuffleServer/getLocalShuffleData",
             );
             let mut req = request.into_request();
             req.extensions_mut()
-                .insert(GrpcMethod::new("uniffle.ShuffleServer", "getLocalShuffleData"));
+                .insert(GrpcMethod::new("rss.common.ShuffleServer", "getLocalShuffleData"));
             self.inner.unary(req, path, codec).await
         }
         pub async fn get_memory_shuffle_data(
@@ -1082,12 +1082,12 @@ pub mod shuffle_server_client {
                 })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static(
-                "/uniffle.ShuffleServer/getMemoryShuffleData",
+                "/rss.common.ShuffleServer/getMemoryShuffleData",
             );
             let mut req = request.into_request();
             req.extensions_mut()
                 .insert(
-                    GrpcMethod::new("uniffle.ShuffleServer", "getMemoryShuffleData"),
+                    GrpcMethod::new("rss.common.ShuffleServer", "getMemoryShuffleData"),
                 );
             self.inner.unary(req, path, codec).await
         }
@@ -1109,11 +1109,11 @@ pub mod shuffle_server_client {
                 })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static(
-                "/uniffle.ShuffleServer/commitShuffleTask",
+                "/rss.common.ShuffleServer/commitShuffleTask",
             );
             let mut req = request.into_request();
             req.extensions_mut()
-                .insert(GrpcMethod::new("uniffle.ShuffleServer", "commitShuffleTask"));
+                .insert(GrpcMethod::new("rss.common.ShuffleServer", "commitShuffleTask"));
             self.inner.unary(req, path, codec).await
         }
         pub async fn report_shuffle_result(
@@ -1134,11 +1134,11 @@ pub mod shuffle_server_client {
                 })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static(
-                "/uniffle.ShuffleServer/reportShuffleResult",
+                "/rss.common.ShuffleServer/reportShuffleResult",
             );
             let mut req = request.into_request();
             req.extensions_mut()
-                .insert(GrpcMethod::new("uniffle.ShuffleServer", "reportShuffleResult"));
+                .insert(GrpcMethod::new("rss.common.ShuffleServer", "reportShuffleResult"));
             self.inner.unary(req, path, codec).await
         }
         pub async fn get_shuffle_result(
@@ -1159,11 +1159,11 @@ pub mod shuffle_server_client {
                 })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static(
-                "/uniffle.ShuffleServer/getShuffleResult",
+                "/rss.common.ShuffleServer/getShuffleResult",
             );
             let mut req = request.into_request();
             req.extensions_mut()
-                .insert(GrpcMethod::new("uniffle.ShuffleServer", "getShuffleResult"));
+                .insert(GrpcMethod::new("rss.common.ShuffleServer", "getShuffleResult"));
             self.inner.unary(req, path, codec).await
         }
         pub async fn get_shuffle_result_for_multi_part(
@@ -1184,13 +1184,13 @@ pub mod shuffle_server_client {
                 })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static(
-                "/uniffle.ShuffleServer/getShuffleResultForMultiPart",
+                "/rss.common.ShuffleServer/getShuffleResultForMultiPart",
             );
             let mut req = request.into_request();
             req.extensions_mut()
                 .insert(
                     GrpcMethod::new(
-                        "uniffle.ShuffleServer",
+                        "rss.common.ShuffleServer",
                         "getShuffleResultForMultiPart",
                     ),
                 );
@@ -1214,11 +1214,11 @@ pub mod shuffle_server_client {
                 })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static(
-                "/uniffle.ShuffleServer/finishShuffle",
+                "/rss.common.ShuffleServer/finishShuffle",
             );
             let mut req = request.into_request();
             req.extensions_mut()
-                .insert(GrpcMethod::new("uniffle.ShuffleServer", "finishShuffle"));
+                .insert(GrpcMethod::new("rss.common.ShuffleServer", "finishShuffle"));
             self.inner.unary(req, path, codec).await
         }
         pub async fn require_buffer(
@@ -1239,11 +1239,11 @@ pub mod shuffle_server_client {
                 })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static(
-                "/uniffle.ShuffleServer/requireBuffer",
+                "/rss.common.ShuffleServer/requireBuffer",
             );
             let mut req = request.into_request();
             req.extensions_mut()
-                .insert(GrpcMethod::new("uniffle.ShuffleServer", "requireBuffer"));
+                .insert(GrpcMethod::new("rss.common.ShuffleServer", "requireBuffer"));
             self.inner.unary(req, path, codec).await
         }
         pub async fn app_heartbeat(
@@ -1264,11 +1264,11 @@ pub mod shuffle_server_client {
                 })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static(
-                "/uniffle.ShuffleServer/appHeartbeat",
+                "/rss.common.ShuffleServer/appHeartbeat",
             );
             let mut req = request.into_request();
             req.extensions_mut()
-                .insert(GrpcMethod::new("uniffle.ShuffleServer", "appHeartbeat"));
+                .insert(GrpcMethod::new("rss.common.ShuffleServer", "appHeartbeat"));
             self.inner.unary(req, path, codec).await
         }
     }
@@ -1285,20 +1285,20 @@ pub mod coordinator_server_client {
     impl CoordinatorServerClient<tonic::transport::Channel> {
         /// Attempt to create a new client by connecting to a given endpoint.
         pub async fn connect<D>(dst: D) -> Result<Self, tonic::transport::Error>
-        where
-            D: TryInto<tonic::transport::Endpoint>,
-            D::Error: Into<StdError>,
+            where
+                D: TryInto<tonic::transport::Endpoint>,
+                D::Error: Into<StdError>,
         {
             let conn = tonic::transport::Endpoint::new(dst)?.connect().await?;
             Ok(Self::new(conn))
         }
     }
     impl<T> CoordinatorServerClient<T>
-    where
-        T: tonic::client::GrpcService<tonic::body::BoxBody>,
-        T::Error: Into<StdError>,
-        T::ResponseBody: Body<Data = Bytes> + Send + 'static,
-        <T::ResponseBody as Body>::Error: Into<StdError> + Send,
+        where
+            T: tonic::client::GrpcService<tonic::body::BoxBody>,
+            T::Error: Into<StdError>,
+            T::ResponseBody: Body<Data = Bytes> + Send + 'static,
+            <T::ResponseBody as Body>::Error: Into<StdError> + Send,
     {
         pub fn new(inner: T) -> Self {
             let inner = tonic::client::Grpc::new(inner);
@@ -1312,18 +1312,18 @@ pub mod coordinator_server_client {
             inner: T,
             interceptor: F,
         ) -> CoordinatorServerClient<InterceptedService<T, F>>
-        where
-            F: tonic::service::Interceptor,
-            T::ResponseBody: Default,
-            T: tonic::codegen::Service<
-                http::Request<tonic::body::BoxBody>,
-                Response = http::Response<
-                    <T as tonic::client::GrpcService<tonic::body::BoxBody>>::ResponseBody,
+            where
+                F: tonic::service::Interceptor,
+                T::ResponseBody: Default,
+                T: tonic::codegen::Service<
+                    http::Request<tonic::body::BoxBody>,
+                    Response = http::Response<
+                        <T as tonic::client::GrpcService<tonic::body::BoxBody>>::ResponseBody,
+                    >,
                 >,
-            >,
-            <T as tonic::codegen::Service<
-                http::Request<tonic::body::BoxBody>,
-            >>::Error: Into<StdError> + Send + Sync,
+                <T as tonic::codegen::Service<
+                    http::Request<tonic::body::BoxBody>,
+                >>::Error: Into<StdError> + Send + Sync,
         {
             CoordinatorServerClient::new(InterceptedService::new(inner, interceptor))
         }
@@ -1377,12 +1377,12 @@ pub mod coordinator_server_client {
                 })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static(
-                "/uniffle.CoordinatorServer/getShuffleServerList",
+                "/rss.common.CoordinatorServer/getShuffleServerList",
             );
             let mut req = request.into_request();
             req.extensions_mut()
                 .insert(
-                    GrpcMethod::new("uniffle.CoordinatorServer", "getShuffleServerList"),
+                    GrpcMethod::new("rss.common.CoordinatorServer", "getShuffleServerList"),
                 );
             self.inner.unary(req, path, codec).await
         }
@@ -1405,12 +1405,12 @@ pub mod coordinator_server_client {
                 })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static(
-                "/uniffle.CoordinatorServer/getShuffleServerNum",
+                "/rss.common.CoordinatorServer/getShuffleServerNum",
             );
             let mut req = request.into_request();
             req.extensions_mut()
                 .insert(
-                    GrpcMethod::new("uniffle.CoordinatorServer", "getShuffleServerNum"),
+                    GrpcMethod::new("rss.common.CoordinatorServer", "getShuffleServerNum"),
                 );
             self.inner.unary(req, path, codec).await
         }
@@ -1433,12 +1433,12 @@ pub mod coordinator_server_client {
                 })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static(
-                "/uniffle.CoordinatorServer/getShuffleAssignments",
+                "/rss.common.CoordinatorServer/getShuffleAssignments",
             );
             let mut req = request.into_request();
             req.extensions_mut()
                 .insert(
-                    GrpcMethod::new("uniffle.CoordinatorServer", "getShuffleAssignments"),
+                    GrpcMethod::new("rss.common.CoordinatorServer", "getShuffleAssignments"),
                 );
             self.inner.unary(req, path, codec).await
         }
@@ -1461,11 +1461,11 @@ pub mod coordinator_server_client {
                 })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static(
-                "/uniffle.CoordinatorServer/heartbeat",
+                "/rss.common.CoordinatorServer/heartbeat",
             );
             let mut req = request.into_request();
             req.extensions_mut()
-                .insert(GrpcMethod::new("uniffle.CoordinatorServer", "heartbeat"));
+                .insert(GrpcMethod::new("rss.common.CoordinatorServer", "heartbeat"));
             self.inner.unary(req, path, codec).await
         }
         /// Get the global configuration of this Rss-cluster, i.e., data storage info
@@ -1487,13 +1487,13 @@ pub mod coordinator_server_client {
                 })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static(
-                "/uniffle.CoordinatorServer/getShuffleDataStorageInfo",
+                "/rss.common.CoordinatorServer/getShuffleDataStorageInfo",
             );
             let mut req = request.into_request();
             req.extensions_mut()
                 .insert(
                     GrpcMethod::new(
-                        "uniffle.CoordinatorServer",
+                        "rss.common.CoordinatorServer",
                         "getShuffleDataStorageInfo",
                     ),
                 );
@@ -1517,12 +1517,12 @@ pub mod coordinator_server_client {
                 })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static(
-                "/uniffle.CoordinatorServer/checkServiceAvailable",
+                "/rss.common.CoordinatorServer/checkServiceAvailable",
             );
             let mut req = request.into_request();
             req.extensions_mut()
                 .insert(
-                    GrpcMethod::new("uniffle.CoordinatorServer", "checkServiceAvailable"),
+                    GrpcMethod::new("rss.common.CoordinatorServer", "checkServiceAvailable"),
                 );
             self.inner.unary(req, path, codec).await
         }
@@ -1545,11 +1545,11 @@ pub mod coordinator_server_client {
                 })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static(
-                "/uniffle.CoordinatorServer/appHeartbeat",
+                "/rss.common.CoordinatorServer/appHeartbeat",
             );
             let mut req = request.into_request();
             req.extensions_mut()
-                .insert(GrpcMethod::new("uniffle.CoordinatorServer", "appHeartbeat"));
+                .insert(GrpcMethod::new("rss.common.CoordinatorServer", "appHeartbeat"));
             self.inner.unary(req, path, codec).await
         }
         /// Report a client operation's result to coordinator server
@@ -1571,12 +1571,12 @@ pub mod coordinator_server_client {
                 })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static(
-                "/uniffle.CoordinatorServer/reportClientOperation",
+                "/rss.common.CoordinatorServer/reportClientOperation",
             );
             let mut req = request.into_request();
             req.extensions_mut()
                 .insert(
-                    GrpcMethod::new("uniffle.CoordinatorServer", "reportClientOperation"),
+                    GrpcMethod::new("rss.common.CoordinatorServer", "reportClientOperation"),
                 );
             self.inner.unary(req, path, codec).await
         }
@@ -1599,13 +1599,13 @@ pub mod coordinator_server_client {
                 })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static(
-                "/uniffle.CoordinatorServer/registerApplicationInfo",
+                "/rss.common.CoordinatorServer/registerApplicationInfo",
             );
             let mut req = request.into_request();
             req.extensions_mut()
                 .insert(
                     GrpcMethod::new(
-                        "uniffle.CoordinatorServer",
+                        "rss.common.CoordinatorServer",
                         "registerApplicationInfo",
                     ),
                 );
@@ -1630,11 +1630,11 @@ pub mod coordinator_server_client {
                 })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static(
-                "/uniffle.CoordinatorServer/accessCluster",
+                "/rss.common.CoordinatorServer/accessCluster",
             );
             let mut req = request.into_request();
             req.extensions_mut()
-                .insert(GrpcMethod::new("uniffle.CoordinatorServer", "accessCluster"));
+                .insert(GrpcMethod::new("rss.common.CoordinatorServer", "accessCluster"));
             self.inner.unary(req, path, codec).await
         }
         /// Get basic client conf from coordinator
@@ -1656,11 +1656,11 @@ pub mod coordinator_server_client {
                 })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static(
-                "/uniffle.CoordinatorServer/fetchClientConf",
+                "/rss.common.CoordinatorServer/fetchClientConf",
             );
             let mut req = request.into_request();
             req.extensions_mut()
-                .insert(GrpcMethod::new("uniffle.CoordinatorServer", "fetchClientConf"));
+                .insert(GrpcMethod::new("rss.common.CoordinatorServer", "fetchClientConf"));
             self.inner.unary(req, path, codec).await
         }
         /// Get remote storage from coordinator
@@ -1682,12 +1682,12 @@ pub mod coordinator_server_client {
                 })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static(
-                "/uniffle.CoordinatorServer/fetchRemoteStorage",
+                "/rss.common.CoordinatorServer/fetchRemoteStorage",
             );
             let mut req = request.into_request();
             req.extensions_mut()
                 .insert(
-                    GrpcMethod::new("uniffle.CoordinatorServer", "fetchRemoteStorage"),
+                    GrpcMethod::new("rss.common.CoordinatorServer", "fetchRemoteStorage"),
                 );
             self.inner.unary(req, path, codec).await
         }
@@ -1705,20 +1705,20 @@ pub mod shuffle_server_internal_client {
     impl ShuffleServerInternalClient<tonic::transport::Channel> {
         /// Attempt to create a new client by connecting to a given endpoint.
         pub async fn connect<D>(dst: D) -> Result<Self, tonic::transport::Error>
-        where
-            D: TryInto<tonic::transport::Endpoint>,
-            D::Error: Into<StdError>,
+            where
+                D: TryInto<tonic::transport::Endpoint>,
+                D::Error: Into<StdError>,
         {
             let conn = tonic::transport::Endpoint::new(dst)?.connect().await?;
             Ok(Self::new(conn))
         }
     }
     impl<T> ShuffleServerInternalClient<T>
-    where
-        T: tonic::client::GrpcService<tonic::body::BoxBody>,
-        T::Error: Into<StdError>,
-        T::ResponseBody: Body<Data = Bytes> + Send + 'static,
-        <T::ResponseBody as Body>::Error: Into<StdError> + Send,
+        where
+            T: tonic::client::GrpcService<tonic::body::BoxBody>,
+            T::Error: Into<StdError>,
+            T::ResponseBody: Body<Data = Bytes> + Send + 'static,
+            <T::ResponseBody as Body>::Error: Into<StdError> + Send,
     {
         pub fn new(inner: T) -> Self {
             let inner = tonic::client::Grpc::new(inner);
@@ -1732,18 +1732,18 @@ pub mod shuffle_server_internal_client {
             inner: T,
             interceptor: F,
         ) -> ShuffleServerInternalClient<InterceptedService<T, F>>
-        where
-            F: tonic::service::Interceptor,
-            T::ResponseBody: Default,
-            T: tonic::codegen::Service<
-                http::Request<tonic::body::BoxBody>,
-                Response = http::Response<
-                    <T as tonic::client::GrpcService<tonic::body::BoxBody>>::ResponseBody,
+            where
+                F: tonic::service::Interceptor,
+                T::ResponseBody: Default,
+                T: tonic::codegen::Service<
+                    http::Request<tonic::body::BoxBody>,
+                    Response = http::Response<
+                        <T as tonic::client::GrpcService<tonic::body::BoxBody>>::ResponseBody,
+                    >,
                 >,
-            >,
-            <T as tonic::codegen::Service<
-                http::Request<tonic::body::BoxBody>,
-            >>::Error: Into<StdError> + Send + Sync,
+                <T as tonic::codegen::Service<
+                    http::Request<tonic::body::BoxBody>,
+                >>::Error: Into<StdError> + Send + Sync,
         {
             ShuffleServerInternalClient::new(InterceptedService::new(inner, interceptor))
         }
@@ -1796,12 +1796,12 @@ pub mod shuffle_server_internal_client {
                 })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static(
-                "/uniffle.ShuffleServerInternal/decommission",
+                "/rss.common.ShuffleServerInternal/decommission",
             );
             let mut req = request.into_request();
             req.extensions_mut()
                 .insert(
-                    GrpcMethod::new("uniffle.ShuffleServerInternal", "decommission"),
+                    GrpcMethod::new("rss.common.ShuffleServerInternal", "decommission"),
                 );
             self.inner.unary(req, path, codec).await
         }
@@ -1823,13 +1823,13 @@ pub mod shuffle_server_internal_client {
                 })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static(
-                "/uniffle.ShuffleServerInternal/cancelDecommission",
+                "/rss.common.ShuffleServerInternal/cancelDecommission",
             );
             let mut req = request.into_request();
             req.extensions_mut()
                 .insert(
                     GrpcMethod::new(
-                        "uniffle.ShuffleServerInternal",
+                        "rss.common.ShuffleServerInternal",
                         "cancelDecommission",
                     ),
                 );
@@ -1851,20 +1851,20 @@ pub mod shuffle_manager_client {
     impl ShuffleManagerClient<tonic::transport::Channel> {
         /// Attempt to create a new client by connecting to a given endpoint.
         pub async fn connect<D>(dst: D) -> Result<Self, tonic::transport::Error>
-        where
-            D: TryInto<tonic::transport::Endpoint>,
-            D::Error: Into<StdError>,
+            where
+                D: TryInto<tonic::transport::Endpoint>,
+                D::Error: Into<StdError>,
         {
             let conn = tonic::transport::Endpoint::new(dst)?.connect().await?;
             Ok(Self::new(conn))
         }
     }
     impl<T> ShuffleManagerClient<T>
-    where
-        T: tonic::client::GrpcService<tonic::body::BoxBody>,
-        T::Error: Into<StdError>,
-        T::ResponseBody: Body<Data = Bytes> + Send + 'static,
-        <T::ResponseBody as Body>::Error: Into<StdError> + Send,
+        where
+            T: tonic::client::GrpcService<tonic::body::BoxBody>,
+            T::Error: Into<StdError>,
+            T::ResponseBody: Body<Data = Bytes> + Send + 'static,
+            <T::ResponseBody as Body>::Error: Into<StdError> + Send,
     {
         pub fn new(inner: T) -> Self {
             let inner = tonic::client::Grpc::new(inner);
@@ -1878,18 +1878,18 @@ pub mod shuffle_manager_client {
             inner: T,
             interceptor: F,
         ) -> ShuffleManagerClient<InterceptedService<T, F>>
-        where
-            F: tonic::service::Interceptor,
-            T::ResponseBody: Default,
-            T: tonic::codegen::Service<
-                http::Request<tonic::body::BoxBody>,
-                Response = http::Response<
-                    <T as tonic::client::GrpcService<tonic::body::BoxBody>>::ResponseBody,
+            where
+                F: tonic::service::Interceptor,
+                T::ResponseBody: Default,
+                T: tonic::codegen::Service<
+                    http::Request<tonic::body::BoxBody>,
+                    Response = http::Response<
+                        <T as tonic::client::GrpcService<tonic::body::BoxBody>>::ResponseBody,
+                    >,
                 >,
-            >,
-            <T as tonic::codegen::Service<
-                http::Request<tonic::body::BoxBody>,
-            >>::Error: Into<StdError> + Send + Sync,
+                <T as tonic::codegen::Service<
+                    http::Request<tonic::body::BoxBody>,
+                >>::Error: Into<StdError> + Send + Sync,
         {
             ShuffleManagerClient::new(InterceptedService::new(inner, interceptor))
         }
@@ -1942,13 +1942,13 @@ pub mod shuffle_manager_client {
                 })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static(
-                "/uniffle.ShuffleManager/reportShuffleFetchFailure",
+                "/rss.common.ShuffleManager/reportShuffleFetchFailure",
             );
             let mut req = request.into_request();
             req.extensions_mut()
                 .insert(
                     GrpcMethod::new(
-                        "uniffle.ShuffleManager",
+                        "rss.common.ShuffleManager",
                         "reportShuffleFetchFailure",
                     ),
                 );
@@ -2082,8 +2082,8 @@ pub mod shuffle_server_server {
             inner: T,
             interceptor: F,
         ) -> InterceptedService<Self, F>
-        where
-            F: tonic::service::Interceptor,
+            where
+                F: tonic::service::Interceptor,
         {
             InterceptedService::new(Self::new(inner), interceptor)
         }
@@ -2117,10 +2117,10 @@ pub mod shuffle_server_server {
         }
     }
     impl<T, B> tonic::codegen::Service<http::Request<B>> for ShuffleServerServer<T>
-    where
-        T: ShuffleServer,
-        B: Body + Send + 'static,
-        B::Error: Into<StdError> + Send + 'static,
+        where
+            T: ShuffleServer,
+            B: Body + Send + 'static,
+            B::Error: Into<StdError> + Send + 'static,
     {
         type Response = http::Response<tonic::body::BoxBody>;
         type Error = std::convert::Infallible;
@@ -2134,7 +2134,7 @@ pub mod shuffle_server_server {
         fn call(&mut self, req: http::Request<B>) -> Self::Future {
             let inner = self.inner.clone();
             match req.uri().path() {
-                "/uniffle.ShuffleServer/registerShuffle" => {
+                "/rss.common.ShuffleServer/registerShuffle" => {
                     #[allow(non_camel_case_types)]
                     struct registerShuffleSvc<T: ShuffleServer>(pub Arc<T>);
                     impl<
@@ -2180,7 +2180,7 @@ pub mod shuffle_server_server {
                     };
                     Box::pin(fut)
                 }
-                "/uniffle.ShuffleServer/unregisterShuffle" => {
+                "/rss.common.ShuffleServer/unregisterShuffle" => {
                     #[allow(non_camel_case_types)]
                     struct unregisterShuffleSvc<T: ShuffleServer>(pub Arc<T>);
                     impl<
@@ -2226,7 +2226,7 @@ pub mod shuffle_server_server {
                     };
                     Box::pin(fut)
                 }
-                "/uniffle.ShuffleServer/sendShuffleData" => {
+                "/rss.common.ShuffleServer/sendShuffleData" => {
                     #[allow(non_camel_case_types)]
                     struct sendShuffleDataSvc<T: ShuffleServer>(pub Arc<T>);
                     impl<
@@ -2272,7 +2272,7 @@ pub mod shuffle_server_server {
                     };
                     Box::pin(fut)
                 }
-                "/uniffle.ShuffleServer/getLocalShuffleIndex" => {
+                "/rss.common.ShuffleServer/getLocalShuffleIndex" => {
                     #[allow(non_camel_case_types)]
                     struct getLocalShuffleIndexSvc<T: ShuffleServer>(pub Arc<T>);
                     impl<
@@ -2318,7 +2318,7 @@ pub mod shuffle_server_server {
                     };
                     Box::pin(fut)
                 }
-                "/uniffle.ShuffleServer/getLocalShuffleData" => {
+                "/rss.common.ShuffleServer/getLocalShuffleData" => {
                     #[allow(non_camel_case_types)]
                     struct getLocalShuffleDataSvc<T: ShuffleServer>(pub Arc<T>);
                     impl<
@@ -2364,7 +2364,7 @@ pub mod shuffle_server_server {
                     };
                     Box::pin(fut)
                 }
-                "/uniffle.ShuffleServer/getMemoryShuffleData" => {
+                "/rss.common.ShuffleServer/getMemoryShuffleData" => {
                     #[allow(non_camel_case_types)]
                     struct getMemoryShuffleDataSvc<T: ShuffleServer>(pub Arc<T>);
                     impl<
@@ -2410,7 +2410,7 @@ pub mod shuffle_server_server {
                     };
                     Box::pin(fut)
                 }
-                "/uniffle.ShuffleServer/commitShuffleTask" => {
+                "/rss.common.ShuffleServer/commitShuffleTask" => {
                     #[allow(non_camel_case_types)]
                     struct commitShuffleTaskSvc<T: ShuffleServer>(pub Arc<T>);
                     impl<
@@ -2456,7 +2456,7 @@ pub mod shuffle_server_server {
                     };
                     Box::pin(fut)
                 }
-                "/uniffle.ShuffleServer/reportShuffleResult" => {
+                "/rss.common.ShuffleServer/reportShuffleResult" => {
                     #[allow(non_camel_case_types)]
                     struct reportShuffleResultSvc<T: ShuffleServer>(pub Arc<T>);
                     impl<
@@ -2502,7 +2502,7 @@ pub mod shuffle_server_server {
                     };
                     Box::pin(fut)
                 }
-                "/uniffle.ShuffleServer/getShuffleResult" => {
+                "/rss.common.ShuffleServer/getShuffleResult" => {
                     #[allow(non_camel_case_types)]
                     struct getShuffleResultSvc<T: ShuffleServer>(pub Arc<T>);
                     impl<
@@ -2548,7 +2548,7 @@ pub mod shuffle_server_server {
                     };
                     Box::pin(fut)
                 }
-                "/uniffle.ShuffleServer/getShuffleResultForMultiPart" => {
+                "/rss.common.ShuffleServer/getShuffleResultForMultiPart" => {
                     #[allow(non_camel_case_types)]
                     struct getShuffleResultForMultiPartSvc<T: ShuffleServer>(pub Arc<T>);
                     impl<
@@ -2597,7 +2597,7 @@ pub mod shuffle_server_server {
                     };
                     Box::pin(fut)
                 }
-                "/uniffle.ShuffleServer/finishShuffle" => {
+                "/rss.common.ShuffleServer/finishShuffle" => {
                     #[allow(non_camel_case_types)]
                     struct finishShuffleSvc<T: ShuffleServer>(pub Arc<T>);
                     impl<
@@ -2643,7 +2643,7 @@ pub mod shuffle_server_server {
                     };
                     Box::pin(fut)
                 }
-                "/uniffle.ShuffleServer/requireBuffer" => {
+                "/rss.common.ShuffleServer/requireBuffer" => {
                     #[allow(non_camel_case_types)]
                     struct requireBufferSvc<T: ShuffleServer>(pub Arc<T>);
                     impl<
@@ -2689,7 +2689,7 @@ pub mod shuffle_server_server {
                     };
                     Box::pin(fut)
                 }
-                "/uniffle.ShuffleServer/appHeartbeat" => {
+                "/rss.common.ShuffleServer/appHeartbeat" => {
                     #[allow(non_camel_case_types)]
                     struct appHeartbeatSvc<T: ShuffleServer>(pub Arc<T>);
                     impl<
@@ -2773,7 +2773,7 @@ pub mod shuffle_server_server {
         }
     }
     impl<T: ShuffleServer> tonic::server::NamedService for ShuffleServerServer<T> {
-        const NAME: &'static str = "uniffle.ShuffleServer";
+        const NAME: &'static str = "rss.common.ShuffleServer";
     }
 }
 /// Generated server implementations.
@@ -2906,8 +2906,8 @@ pub mod coordinator_server_server {
             inner: T,
             interceptor: F,
         ) -> InterceptedService<Self, F>
-        where
-            F: tonic::service::Interceptor,
+            where
+                F: tonic::service::Interceptor,
         {
             InterceptedService::new(Self::new(inner), interceptor)
         }
@@ -2941,10 +2941,10 @@ pub mod coordinator_server_server {
         }
     }
     impl<T, B> tonic::codegen::Service<http::Request<B>> for CoordinatorServerServer<T>
-    where
-        T: CoordinatorServer,
-        B: Body + Send + 'static,
-        B::Error: Into<StdError> + Send + 'static,
+        where
+            T: CoordinatorServer,
+            B: Body + Send + 'static,
+            B::Error: Into<StdError> + Send + 'static,
     {
         type Response = http::Response<tonic::body::BoxBody>;
         type Error = std::convert::Infallible;
@@ -2958,7 +2958,7 @@ pub mod coordinator_server_server {
         fn call(&mut self, req: http::Request<B>) -> Self::Future {
             let inner = self.inner.clone();
             match req.uri().path() {
-                "/uniffle.CoordinatorServer/getShuffleServerList" => {
+                "/rss.common.CoordinatorServer/getShuffleServerList" => {
                     #[allow(non_camel_case_types)]
                     struct getShuffleServerListSvc<T: CoordinatorServer>(pub Arc<T>);
                     impl<T: CoordinatorServer> tonic::server::UnaryService<()>
@@ -2999,7 +2999,7 @@ pub mod coordinator_server_server {
                     };
                     Box::pin(fut)
                 }
-                "/uniffle.CoordinatorServer/getShuffleServerNum" => {
+                "/rss.common.CoordinatorServer/getShuffleServerNum" => {
                     #[allow(non_camel_case_types)]
                     struct getShuffleServerNumSvc<T: CoordinatorServer>(pub Arc<T>);
                     impl<T: CoordinatorServer> tonic::server::UnaryService<()>
@@ -3040,7 +3040,7 @@ pub mod coordinator_server_server {
                     };
                     Box::pin(fut)
                 }
-                "/uniffle.CoordinatorServer/getShuffleAssignments" => {
+                "/rss.common.CoordinatorServer/getShuffleAssignments" => {
                     #[allow(non_camel_case_types)]
                     struct getShuffleAssignmentsSvc<T: CoordinatorServer>(pub Arc<T>);
                     impl<
@@ -3086,7 +3086,7 @@ pub mod coordinator_server_server {
                     };
                     Box::pin(fut)
                 }
-                "/uniffle.CoordinatorServer/heartbeat" => {
+                "/rss.common.CoordinatorServer/heartbeat" => {
                     #[allow(non_camel_case_types)]
                     struct heartbeatSvc<T: CoordinatorServer>(pub Arc<T>);
                     impl<
@@ -3130,7 +3130,7 @@ pub mod coordinator_server_server {
                     };
                     Box::pin(fut)
                 }
-                "/uniffle.CoordinatorServer/getShuffleDataStorageInfo" => {
+                "/rss.common.CoordinatorServer/getShuffleDataStorageInfo" => {
                     #[allow(non_camel_case_types)]
                     struct getShuffleDataStorageInfoSvc<T: CoordinatorServer>(
                         pub Arc<T>,
@@ -3173,7 +3173,7 @@ pub mod coordinator_server_server {
                     };
                     Box::pin(fut)
                 }
-                "/uniffle.CoordinatorServer/checkServiceAvailable" => {
+                "/rss.common.CoordinatorServer/checkServiceAvailable" => {
                     #[allow(non_camel_case_types)]
                     struct checkServiceAvailableSvc<T: CoordinatorServer>(pub Arc<T>);
                     impl<T: CoordinatorServer> tonic::server::UnaryService<()>
@@ -3214,7 +3214,7 @@ pub mod coordinator_server_server {
                     };
                     Box::pin(fut)
                 }
-                "/uniffle.CoordinatorServer/appHeartbeat" => {
+                "/rss.common.CoordinatorServer/appHeartbeat" => {
                     #[allow(non_camel_case_types)]
                     struct appHeartbeatSvc<T: CoordinatorServer>(pub Arc<T>);
                     impl<
@@ -3260,7 +3260,7 @@ pub mod coordinator_server_server {
                     };
                     Box::pin(fut)
                 }
-                "/uniffle.CoordinatorServer/reportClientOperation" => {
+                "/rss.common.CoordinatorServer/reportClientOperation" => {
                     #[allow(non_camel_case_types)]
                     struct reportClientOperationSvc<T: CoordinatorServer>(pub Arc<T>);
                     impl<
@@ -3306,7 +3306,7 @@ pub mod coordinator_server_server {
                     };
                     Box::pin(fut)
                 }
-                "/uniffle.CoordinatorServer/registerApplicationInfo" => {
+                "/rss.common.CoordinatorServer/registerApplicationInfo" => {
                     #[allow(non_camel_case_types)]
                     struct registerApplicationInfoSvc<T: CoordinatorServer>(pub Arc<T>);
                     impl<
@@ -3352,7 +3352,7 @@ pub mod coordinator_server_server {
                     };
                     Box::pin(fut)
                 }
-                "/uniffle.CoordinatorServer/accessCluster" => {
+                "/rss.common.CoordinatorServer/accessCluster" => {
                     #[allow(non_camel_case_types)]
                     struct accessClusterSvc<T: CoordinatorServer>(pub Arc<T>);
                     impl<
@@ -3398,7 +3398,7 @@ pub mod coordinator_server_server {
                     };
                     Box::pin(fut)
                 }
-                "/uniffle.CoordinatorServer/fetchClientConf" => {
+                "/rss.common.CoordinatorServer/fetchClientConf" => {
                     #[allow(non_camel_case_types)]
                     struct fetchClientConfSvc<T: CoordinatorServer>(pub Arc<T>);
                     impl<T: CoordinatorServer> tonic::server::UnaryService<()>
@@ -3439,7 +3439,7 @@ pub mod coordinator_server_server {
                     };
                     Box::pin(fut)
                 }
-                "/uniffle.CoordinatorServer/fetchRemoteStorage" => {
+                "/rss.common.CoordinatorServer/fetchRemoteStorage" => {
                     #[allow(non_camel_case_types)]
                     struct fetchRemoteStorageSvc<T: CoordinatorServer>(pub Arc<T>);
                     impl<
@@ -3524,7 +3524,7 @@ pub mod coordinator_server_server {
     }
     impl<T: CoordinatorServer> tonic::server::NamedService
     for CoordinatorServerServer<T> {
-        const NAME: &'static str = "uniffle.CoordinatorServer";
+        const NAME: &'static str = "rss.common.CoordinatorServer";
     }
 }
 /// Generated server implementations.
@@ -3576,8 +3576,8 @@ pub mod shuffle_server_internal_server {
             inner: T,
             interceptor: F,
         ) -> InterceptedService<Self, F>
-        where
-            F: tonic::service::Interceptor,
+            where
+                F: tonic::service::Interceptor,
         {
             InterceptedService::new(Self::new(inner), interceptor)
         }
@@ -3612,10 +3612,10 @@ pub mod shuffle_server_internal_server {
     }
     impl<T, B> tonic::codegen::Service<http::Request<B>>
     for ShuffleServerInternalServer<T>
-    where
-        T: ShuffleServerInternal,
-        B: Body + Send + 'static,
-        B::Error: Into<StdError> + Send + 'static,
+        where
+            T: ShuffleServerInternal,
+            B: Body + Send + 'static,
+            B::Error: Into<StdError> + Send + 'static,
     {
         type Response = http::Response<tonic::body::BoxBody>;
         type Error = std::convert::Infallible;
@@ -3629,7 +3629,7 @@ pub mod shuffle_server_internal_server {
         fn call(&mut self, req: http::Request<B>) -> Self::Future {
             let inner = self.inner.clone();
             match req.uri().path() {
-                "/uniffle.ShuffleServerInternal/decommission" => {
+                "/rss.common.ShuffleServerInternal/decommission" => {
                     #[allow(non_camel_case_types)]
                     struct decommissionSvc<T: ShuffleServerInternal>(pub Arc<T>);
                     impl<
@@ -3675,7 +3675,7 @@ pub mod shuffle_server_internal_server {
                     };
                     Box::pin(fut)
                 }
-                "/uniffle.ShuffleServerInternal/cancelDecommission" => {
+                "/rss.common.ShuffleServerInternal/cancelDecommission" => {
                     #[allow(non_camel_case_types)]
                     struct cancelDecommissionSvc<T: ShuffleServerInternal>(pub Arc<T>);
                     impl<
@@ -3760,7 +3760,7 @@ pub mod shuffle_server_internal_server {
     }
     impl<T: ShuffleServerInternal> tonic::server::NamedService
     for ShuffleServerInternalServer<T> {
-        const NAME: &'static str = "uniffle.ShuffleServerInternal";
+        const NAME: &'static str = "rss.common.ShuffleServerInternal";
     }
 }
 /// Generated server implementations.
@@ -3807,8 +3807,8 @@ pub mod shuffle_manager_server {
             inner: T,
             interceptor: F,
         ) -> InterceptedService<Self, F>
-        where
-            F: tonic::service::Interceptor,
+            where
+                F: tonic::service::Interceptor,
         {
             InterceptedService::new(Self::new(inner), interceptor)
         }
@@ -3842,10 +3842,10 @@ pub mod shuffle_manager_server {
         }
     }
     impl<T, B> tonic::codegen::Service<http::Request<B>> for ShuffleManagerServer<T>
-    where
-        T: ShuffleManager,
-        B: Body + Send + 'static,
-        B::Error: Into<StdError> + Send + 'static,
+        where
+            T: ShuffleManager,
+            B: Body + Send + 'static,
+            B::Error: Into<StdError> + Send + 'static,
     {
         type Response = http::Response<tonic::body::BoxBody>;
         type Error = std::convert::Infallible;
@@ -3859,7 +3859,7 @@ pub mod shuffle_manager_server {
         fn call(&mut self, req: http::Request<B>) -> Self::Future {
             let inner = self.inner.clone();
             match req.uri().path() {
-                "/uniffle.ShuffleManager/reportShuffleFetchFailure" => {
+                "/rss.common.ShuffleManager/reportShuffleFetchFailure" => {
                     #[allow(non_camel_case_types)]
                     struct reportShuffleFetchFailureSvc<T: ShuffleManager>(pub Arc<T>);
                     impl<
@@ -3946,6 +3946,6 @@ pub mod shuffle_manager_server {
         }
     }
     impl<T: ShuffleManager> tonic::server::NamedService for ShuffleManagerServer<T> {
-        const NAME: &'static str = "uniffle.ShuffleManager";
+        const NAME: &'static str = "rss.common.ShuffleManager";
     }
 }
