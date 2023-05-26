@@ -34,6 +34,7 @@ async-trait = "0.1.68"
 futures = "0.3"
 serde = { version = "1", features = ["derive"] } # 序列化/反序列化
 async-channel = "1.8.0"
+roaring = "0.10.1"
 
 [build-dependencies]
 tonic-build = "0.9.1"

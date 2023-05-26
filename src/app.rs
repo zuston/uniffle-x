@@ -2,14 +2,15 @@ use std::borrow::BorrowMut;
 use std::fs::read;
 use std::io::Read;
 use std::ops::Deref;
-use std::sync::{Arc, mpsc, Mutex};
+use std::sync::{Arc, mpsc, Mutex, RwLock};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::atomic::Ordering::AcqRel;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use dashmap::DashMap;
 use anyhow::{Result, anyhow};
-use bytes::{BufMut, Bytes};
-use dashmap::mapref::one::Ref;
+use bytes::{BufMut, Bytes, BytesMut};
+use dashmap::mapref::one::{Ref, RefMut};
+use roaring::{RoaringTreemap, treemap};
 use tokio::runtime::Runtime;
 use tonic::codegen::ok;
 use tracing::callsite::register;
@@ -40,7 +41,8 @@ struct AppConfigOptions {
 #[derive(Clone)]
 pub struct App {
     app: Arc<AppInner>,
-    store: Arc<HybridStore>
+    store: Arc<HybridStore>,
+    bitmap_of_blocks: DashMap<i32, DashMap<i32, Arc<RwLock<RoaringTreemap>>>>
 }
 
 impl App {
@@ -54,7 +56,8 @@ impl App {
                     latest_heartbeat_time: AtomicU64::new(App::current_timestamp())
                 },
             ),
-            store
+            store,
+            bitmap_of_blocks: DashMap::new()
         }
     }
 
@@ -98,11 +101,53 @@ impl App {
         self.store.require_buffer(ctx).await
     }
 
+    fn get_underlying_partition_bitmap(&self, uid: PartitionedUId) -> Arc<RwLock<RoaringTreemap>> {
+        let shuffle_id = uid.shuffle_id;
+        let partition_id = uid.partition_id;
+        let shuffle_entry = self.bitmap_of_blocks.entry(shuffle_id).or_insert_with(||DashMap::new());
+        let mut partition_bitmap = shuffle_entry.entry(partition_id).or_insert_with(||Arc::new(RwLock::new(RoaringTreemap::new())));
+
+        partition_bitmap.clone()
+    }
+
+    pub async fn get_block_ids(&self, ctx: GetBlocksContext) -> Result<Bytes> {
+        let mut partition_bitmap = self.get_underlying_partition_bitmap(ctx.uid);
+        let partition_bitmap = partition_bitmap.read().unwrap();
+
+        let size = partition_bitmap.serialized_size();
+        let mut std_bytes = Vec::with_capacity(size);
+        partition_bitmap.serialize_into(&mut std_bytes).unwrap();
+
+        Ok(
+            Bytes::from(std_bytes)
+        )
+    }
+
+    pub async fn report_block_ids(&'static self, ctx: ReportBlocksContext) -> Result<()> {
+        let mut partition_bitmap_wrapper = self.get_underlying_partition_bitmap(ctx.uid);
+        let mut partition_bitmap = partition_bitmap_wrapper.write().unwrap();
+
+        for block_id in ctx.blocks {
+            partition_bitmap.insert(block_id as u64);
+        }
+
+        Ok(())
+    }
+
     pub async fn purge(&self, app_id: String, shuffle_id: Option<i32>) -> Result<()> {
         Ok(())
     }
 }
 
+pub struct ReportBlocksContext {
+    uid: PartitionedUId,
+    blocks: Vec<i64>
+}
+
+pub struct GetBlocksContext {
+    uid: PartitionedUId,
+    data: Bytes
+}
 
 #[derive(Debug)]
 pub struct AppInner {
