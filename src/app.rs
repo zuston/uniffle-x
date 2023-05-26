@@ -74,7 +74,7 @@ impl App {
         self.app.latest_heartbeat_time.load(Ordering::SeqCst)
     }
 
-    pub fn heartbeat(&mut self) -> Result<()> {
+    pub fn heartbeat(&self) -> Result<()> {
         let timestamp = App::current_timestamp();
         self.app.latest_heartbeat_time.swap(timestamp, Ordering::SeqCst);
         Ok(())
@@ -123,7 +123,7 @@ impl App {
         )
     }
 
-    pub async fn report_block_ids(&'static self, ctx: ReportBlocksContext) -> Result<()> {
+    pub async fn report_block_ids(&self, ctx: ReportBlocksContext) -> Result<()> {
         let mut partition_bitmap_wrapper = self.get_underlying_partition_bitmap(ctx.uid);
         let mut partition_bitmap = partition_bitmap_wrapper.write().unwrap();
 
@@ -140,13 +140,12 @@ impl App {
 }
 
 pub struct ReportBlocksContext {
-    uid: PartitionedUId,
-    blocks: Vec<i64>
+    pub(crate) uid: PartitionedUId,
+    pub(crate) blocks: Vec<i64>
 }
 
 pub struct GetBlocksContext {
-    uid: PartitionedUId,
-    data: Bytes
+    pub(crate) uid: PartitionedUId,
 }
 
 #[derive(Debug)]

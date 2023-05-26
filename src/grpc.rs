@@ -1,12 +1,13 @@
-use log::error;
+use bytes::{BufMut, BytesMut};
+use log::{error, info};
 use toml::Value::String;
 use tonic::{Request, Response, Status};
-use crate::app::{PartitionedUId, ReadingIndexViewContext, WritingViewContext};
+use crate::app::{GetBlocksContext, PartitionedUId, ReadingIndexViewContext, ReadingOptions, ReadingViewContext, ReportBlocksContext, RequireBufferContext, WritingViewContext};
 use crate::AppManagerRef;
 use crate::proto::uniffle::shuffle_server_server::ShuffleServer;
 use crate::proto::uniffle::{AppHeartBeatRequest, AppHeartBeatResponse, FinishShuffleRequest, FinishShuffleResponse, GetLocalShuffleDataRequest, GetLocalShuffleDataResponse, GetLocalShuffleIndexRequest, GetLocalShuffleIndexResponse, GetMemoryShuffleDataRequest, GetMemoryShuffleDataResponse, GetShuffleResultForMultiPartRequest, GetShuffleResultForMultiPartResponse, GetShuffleResultRequest, GetShuffleResultResponse, ReportShuffleResultRequest, ReportShuffleResultResponse, RequireBufferRequest, RequireBufferResponse, SendShuffleDataRequest, SendShuffleDataResponse, ShuffleCommitRequest, ShuffleCommitResponse, ShuffleRegisterRequest, ShuffleRegisterResponse, ShuffleUnregisterRequest, ShuffleUnregisterResponse};
 use crate::proto::uniffle::coordinator_server_server::CoordinatorServer;
-use crate::store::{PartitionedData, PartitionedDataBlock, ResponseDataIndex};
+use crate::store::{PartitionedData, PartitionedDataBlock, ResponseData, ResponseDataIndex};
 
 pub struct DefaultShuffleServer {
     appManagerRef: AppManagerRef
@@ -37,7 +38,7 @@ impl ShuffleServer for DefaultShuffleServer {
     }
 
     async fn unregister_shuffle(&self, request: Request<ShuffleUnregisterRequest>) -> Result<Response<ShuffleUnregisterResponse>, Status> {
-        // todo
+        info!("Accepted unregister shuffle info....");
         Ok(
             Response::new(ShuffleUnregisterResponse {
                 status: 0,
@@ -142,11 +143,56 @@ impl ShuffleServer for DefaultShuffleServer {
     }
 
     async fn get_local_shuffle_data(&self, request: Request<GetLocalShuffleDataRequest>) -> Result<Response<GetLocalShuffleDataResponse>, Status> {
-        todo!()
+        let req = request.into_inner();
+        let app_id = req.app_id;
+        let shuffle_id: i32 = req.shuffle_id;
+        let partition_id = req.partition_id;
+
+        let app = self.appManagerRef.get_app(&app_id).unwrap();
+        let data = app.select(ReadingViewContext {
+            uid: PartitionedUId {
+                app_id,
+                shuffle_id,
+                partition_id
+            },
+            reading_options: ReadingOptions::FILE_OFFSET_AND_LEN(
+                req.offset, req.length as i64
+            )
+        }).await.unwrap();
+        
+        Ok(Response::new(GetLocalShuffleDataResponse {
+            data: data.from_local(),
+            status: 0,
+            ret_msg: "".to_string()
+        }))
     }
 
     async fn get_memory_shuffle_data(&self, request: Request<GetMemoryShuffleDataRequest>) -> Result<Response<GetMemoryShuffleDataResponse>, Status> {
-        todo!()
+        let req = request.into_inner();
+        let app_id = req.app_id;
+        let shuffle_id: i32 = req.shuffle_id;
+        let partition_id = req.partition_id;
+
+        let app = self.appManagerRef.get_app(&app_id).unwrap();
+        let data = app.select(ReadingViewContext {
+            uid: PartitionedUId {
+                app_id,
+                shuffle_id,
+                partition_id
+            },
+            reading_options: ReadingOptions::MEMORY_LAST_BLOCK_ID_AND_MAX_SIZE(
+                req.last_block_id, req.read_buffer_size as i64
+            )
+        }).await.unwrap();
+
+        let data = data.from_memory();
+
+        Ok(Response::new(GetMemoryShuffleDataResponse {
+            shuffle_data_block_segments: data.shuffle_data_block_segments.into_iter().map(|x| x.into()).collect(),
+            data: data.data,
+            status: 0,
+            ret_msg: "".to_string()
+        }))
     }
 
     async fn commit_shuffle_task(&self, request: Request<ShuffleCommitRequest>) -> Result<Response<ShuffleCommitResponse>, Status> {
@@ -154,26 +200,124 @@ impl ShuffleServer for DefaultShuffleServer {
     }
 
     async fn report_shuffle_result(&self, request: Request<ReportShuffleResultRequest>) -> Result<Response<ReportShuffleResultResponse>, Status> {
-        todo!()
+        let req = request.into_inner();
+        let app_id = req.app_id;
+        let shuffle_id = req.shuffle_id;
+        let partition_to_block_ids = req.partition_to_block_ids;
+
+        let app = self.appManagerRef.get_app(&app_id).unwrap();
+
+        for partition_to_block_id in partition_to_block_ids {
+            let partition_id = partition_to_block_id.partition_id;
+            let ctx = ReportBlocksContext {
+                uid: PartitionedUId {
+                    app_id: app_id.clone(),
+                    shuffle_id,
+                    partition_id
+                },
+                blocks: partition_to_block_id.block_ids
+            };
+            let _ = app.report_block_ids(ctx).await;
+        }
+
+        Ok(Response::new(ReportShuffleResultResponse {
+            status: 0,
+            ret_msg: "".to_string()
+        }))
     }
 
     async fn get_shuffle_result(&self, request: Request<GetShuffleResultRequest>) -> Result<Response<GetShuffleResultResponse>, Status> {
-        todo!()
+        let req = request.into_inner();
+        let app_id = req.app_id;
+        let shuffle_id = req.shuffle_id;
+        let partition_id = req.partition_id;
+
+        let app = self.appManagerRef.get_app(&app_id).unwrap();
+        let data = app.get_block_ids(GetBlocksContext {
+            uid: PartitionedUId {
+                app_id,
+                shuffle_id,
+                partition_id
+            }
+        }).await.unwrap();
+
+        Ok(Response::new(GetShuffleResultResponse {
+            status: 0,
+            ret_msg: "".to_string(),
+            serialized_bitmap: data
+        }))
     }
 
     async fn get_shuffle_result_for_multi_part(&self, request: Request<GetShuffleResultForMultiPartRequest>) -> Result<Response<GetShuffleResultForMultiPartResponse>, Status> {
-        todo!()
+        let req = request.into_inner();
+        let app_id = req.app_id;
+        let shuffle_id = req.shuffle_id;
+
+        let mut bytes_mut = BytesMut::new();
+        for partition_id in req.partitions {
+            let app = self.appManagerRef.get_app(&app_id).unwrap();
+            let data = app.get_block_ids(GetBlocksContext {
+                uid: PartitionedUId {
+                    app_id: app_id.clone(),
+                    shuffle_id,
+                    partition_id
+                }
+            }).await.unwrap();
+            bytes_mut.put(data);
+        }
+
+
+        Ok(Response::new(GetShuffleResultForMultiPartResponse {
+            status: 0,
+            ret_msg: "".to_string(),
+            serialized_bitmap: bytes_mut.freeze()
+        }))
     }
 
     async fn finish_shuffle(&self, request: Request<FinishShuffleRequest>) -> Result<Response<FinishShuffleResponse>, Status> {
-        todo!()
+        info!("Accepted unregister shuffle info....");
+        Ok(
+            Response::new(FinishShuffleResponse {
+                status: 0,
+                ret_msg: "".to_string()
+            })
+        )
     }
 
     async fn require_buffer(&self, request: Request<RequireBufferRequest>) -> Result<Response<RequireBufferResponse>, Status> {
-        todo!()
+        let req = request.into_inner();
+        let app_id = req.app_id;
+        let shuffle_id = req.shuffle_id;
+
+        let app = self.appManagerRef.get_app(&app_id).unwrap();
+        let (is_ok, id) = app.require_buffer(RequireBufferContext {
+            uid: PartitionedUId {
+                app_id,
+                shuffle_id,
+                // ignore this.
+                partition_id: 1
+            },
+            size: req.require_size as i64
+        }).await.unwrap();
+
+        let mut status_code = 0;
+        if !is_ok {
+            // 2 = No buffer
+            status_code = 2;
+        }
+
+        Ok(Response::new(RequireBufferResponse {
+            require_buffer_id: id,
+            status: status_code,
+            ret_msg: "".to_string()
+        }))
     }
 
     async fn app_heartbeat(&self, request: Request<AppHeartBeatRequest>) -> Result<Response<AppHeartBeatResponse>, Status> {
-        todo!()
+        info!("Accepted heatbeat for app: {:#?}", request.into_inner().app_id);
+        Ok(Response::new(AppHeartBeatResponse {
+            status: 0,
+            ret_msg: "".to_string()
+        }))
     }
 }

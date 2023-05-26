@@ -25,9 +25,10 @@ use tonic::codegen::ok;
 use tracing::dispatcher::set_default;
 use crate::app::{PartitionedUId, ReadingIndexViewContext, ReadingViewContext, RequireBufferContext, WritingViewContext};
 use crate::app::ReadingOptions::{MEMORY_LAST_BLOCK_ID_AND_MAX_SIZE};
-use crate::proto::uniffle::{ShuffleBlock, ShuffleData};
+use crate::proto::uniffle::{ShuffleBlock, ShuffleData, ShuffleDataBlockSegment};
 use crate::store::ResponseDataIndex::local;
 use async_trait::async_trait;
+use log::Level::Debug;
 use crate::config::Config;
 use crate::store::hybrid::HybridStore;
 use crate::store::memory::MemoryStore;
@@ -84,15 +85,33 @@ pub enum ResponseData {
     mem(PartitionedMemoryData)
 }
 
+impl ResponseData {
+    pub fn from_local(&self) -> Bytes {
+        match self {
+            ResponseData::local(data) => data.data.clone(),
+            _ => Default::default()
+        }
+    }
+
+    pub fn from_memory(&self) -> PartitionedMemoryData {
+        match self {
+            ResponseData::mem(data) => data.clone(),
+            _ => Default::default()
+        }
+    }
+}
+
 pub struct PartitionedLocalData {
     pub data: Bytes,
 }
 
+#[derive(Clone, Default)]
 pub struct PartitionedMemoryData {
     pub shuffle_data_block_segments: Vec<DataSegment>,
     pub data: Bytes
 }
 
+#[derive(Clone)]
 pub struct DataSegment {
     pub block_id: i64,
     pub offset: i64,
@@ -100,6 +119,19 @@ pub struct DataSegment {
     pub uncompress_length: i32,
     pub crc: i64,
     pub task_attempt_id: i64,
+}
+
+impl Into<ShuffleDataBlockSegment> for DataSegment {
+    fn into(self) -> ShuffleDataBlockSegment {
+        ShuffleDataBlockSegment {
+            block_id: self.block_id,
+            offset: self.offset,
+            length: self.length,
+            uncompress_length: self.uncompress_length,
+            crc: self.crc,
+            task_attempt_id: self.task_attempt_id
+        }
+    }
 }
 
 // =====================================================
