@@ -155,21 +155,18 @@ mod tests {
         let temp_path = temp_dir.path().to_str().unwrap().to_string();
         println!("init local file path: {}", temp_path);
 
-        let config = Config {
-            memory_store: Some(MemoryStoreConfig {
-                capacity: (data_len * 1) as i64
-            }),
-            localfile_store: Some(LocalfileStoreConfig {
-                data_paths: vec![temp_path]
-            }),
-            hybrid_store: Some(HybridStoreConfig {
-                memory_spill_high_watermark: 0.8,
-                memory_spill_low_watermark: 0.2,
-            }),
-            store_type: Some(StorageType::MEMORY_LOCALFILE),
-            grpc_port: None,
-            coordinator_quorum: vec![]
-        };
+        let mut config = Config::default();
+        config.memory_store=Some(MemoryStoreConfig {
+            capacity: (data_len * 1) as i64
+        });
+        config.localfile_store = Some(LocalfileStoreConfig {
+            data_paths: vec![temp_path]
+        });
+        config.hybrid_store = Some(HybridStoreConfig {
+            memory_spill_high_watermark: 0.8,
+            memory_spill_low_watermark: 0.2
+        });
+        config.store_type = Some(StorageType::MEMORY_LOCALFILE);
 
         /// The hybrid store will flush the memory data to file when
         /// the data reaches the number of 4

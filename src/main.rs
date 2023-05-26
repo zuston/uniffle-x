@@ -80,12 +80,12 @@ async fn main() -> Result<()> {
     let config = Config::create_from_env();
     let rpc_port = config.grpc_port.unwrap_or(19999);
     let coordinator_quorum = config.coordinator_quorum.clone();
-    let appManagerRef = AppManager::get_ref(config);
-    let _ = schedule_coordinator_report(appManagerRef.clone(), coordinator_quorum, rpc_port).await;
+    let app_manager_ref = AppManager::get_ref(config);
+    let _ = schedule_coordinator_report(app_manager_ref.clone(), coordinator_quorum, rpc_port).await;
 
     info!("Starting GRpc server with port:[{}] ......", rpc_port);
     let addr = format!("[::1]:{}", rpc_port).parse()?;
-    let shuffle_server = DefaultShuffleServer::from(appManagerRef);
+    let shuffle_server = DefaultShuffleServer::from(app_manager_ref);
     Server::builder()
         .add_service(ShuffleServerServer::new(shuffle_server))
         .serve(addr)

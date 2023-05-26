@@ -298,21 +298,17 @@ mod test {
         let temp_path = temp_dir.path().to_str().unwrap().to_string();
         println!("init local file path: {}", temp_path);
 
-        let config = Config {
-            memory_store: Some(MemoryStoreConfig {
-                capacity: 1024 * 1024
-            }),
-            localfile_store: Some(LocalfileStoreConfig {
-                data_paths: vec![temp_path]
-            }),
-            hybrid_store: Some(HybridStoreConfig {
-                memory_spill_high_watermark: 0.8,
-                memory_spill_low_watermark: 0.7
-            }),
-            store_type: None,
-            grpc_port: None,
-            coordinator_quorum: vec![]
-        };
+        let mut config = Config::default();
+        config.memory_store=Some(MemoryStoreConfig {
+            capacity: 1024 * 1024
+        });
+        config.localfile_store = Some(LocalfileStoreConfig {
+            data_paths: vec![temp_path]
+        });
+        config.hybrid_store = Some(HybridStoreConfig {
+            memory_spill_high_watermark: 0.8,
+            memory_spill_low_watermark: 0.7
+        });
         config
     }
 

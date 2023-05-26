@@ -18,7 +18,7 @@ pub struct HybridStoreConfig {
     pub memory_spill_low_watermark: f32,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Default)]
 pub struct Config {
     pub memory_store: Option<MemoryStoreConfig>,
     pub localfile_store: Option<LocalfileStoreConfig>,
