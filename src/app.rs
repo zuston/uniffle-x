@@ -310,7 +310,8 @@ mod test {
                 memory_spill_low_watermark: 0.7
             }),
             store_type: None,
-            grpc_port: None
+            grpc_port: None,
+            coordinator_quorum: vec![]
         };
         config
     }

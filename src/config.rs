@@ -26,7 +26,8 @@ pub struct Config {
 
     pub store_type: Option<StorageType>,
 
-    pub grpc_port: Option<i32>
+    pub grpc_port: Option<i32>,
+    pub coordinator_quorum: Vec<String>
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
@@ -59,7 +60,8 @@ impl Config {
             localfile_store: None,
             hybrid_store: None,
             store_type: None,
-            grpc_port: None
+            grpc_port: None,
+            coordinator_quorum: vec!["xxxxxx".to_string()]
         }
     }
 }
