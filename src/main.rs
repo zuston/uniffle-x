@@ -1,14 +1,17 @@
 extern crate core;
 
+use std::borrow::BorrowMut;
 use std::net::IpAddr;
 use std::rc::Rc;
 use std::sync::Arc;
 use std::time::Duration;
-use tonic::transport::Server;
+use tonic::transport::{Channel, Server};
 use crate::app::{AppManager, AppManagerRef};
 use crate::grpc::DefaultShuffleServer;
 use crate::proto::uniffle::shuffle_server_server::ShuffleServerServer;
 use anyhow::{Result, anyhow};
+use async_trait::async_trait;
+use futures::StreamExt;
 use log::info;
 use tracing_subscriber::{EnvFilter, fmt, Registry};
 use tracing_subscriber::layer::SubscriberExt;
@@ -36,7 +39,7 @@ async fn schedule_coordinator_report(app_manager: AppManagerRef, coordinator_quo
 
         let ip = get_local_ip().unwrap().to_string();
 
-        info!("ip: {}", ip.clone());
+        info!("machine ip: {}", ip.clone());
 
         let shuffle_server_id = ShuffleServerId {
             id: format!("{}-{}", ip.clone(), grpc_port),
@@ -45,19 +48,16 @@ async fn schedule_coordinator_report(app_manager: AppManagerRef, coordinator_quo
             netty_port: 0
         };
 
-        let mut client_1 = CoordinatorServerClient::connect(format!("http://{}", coordinator_quorum.get(0).unwrap())).await.unwrap();
-
-        // let mut multi_coordinator_clients = vec![
-        // ];
-
-        // let mut multi_coordinator_clients =
-        //     coordinator_quorum.into_iter().map(async |quorum| CoordinatorServerClient::connect(format!("http://{}", quorum)).await?).collect();
+        let mut multi_coordinator_clients: Vec<CoordinatorServerClient<Channel>> =
+        futures::future::try_join_all(
+            coordinator_quorum.iter().map(|quorum| CoordinatorServerClient::connect(format!("http://{}", quorum)))
+        ).await.unwrap();
 
         loop {
             // todo: add interval as config var
             tokio::time::sleep(Duration::from_secs(10)).await;
 
-            let request = tonic::Request::new(ShuffleServerHeartBeatRequest {
+            let heartbeat_req = ShuffleServerHeartBeatRequest {
                 server_id: Some(shuffle_server_id.clone()),
                 used_memory: 0,
                 pre_allocated_memory: 0,
@@ -67,8 +67,13 @@ async fn schedule_coordinator_report(app_manager: AppManagerRef, coordinator_quo
                 is_healthy: Some(true),
                 status: 0,
                 storage_info: Default::default()
-            });
-            client_1.heartbeat(request).await.unwrap();
+            };
+
+            // It must use the 0..len to avoid borrow check in loop.
+            for idx in 0..multi_coordinator_clients.len() {
+                let client = multi_coordinator_clients.get_mut(idx).unwrap();
+                client.heartbeat(tonic::Request::new(heartbeat_req.clone())).await;
+            }
         }
     });
 
@@ -104,10 +109,8 @@ fn init_log(log: &LogConfig) {
 async fn main() -> Result<()> {
     let config = Config::create_from_env();
 
-    // init the log
-    let log = config.log.clone();
-    let log = &log.unwrap_or(Default::default());
-    init_log(log);
+    let log_config = &config.log.clone().unwrap_or(Default::default());
+    init_log(log_config);
 
     let rpc_port = config.grpc_port.unwrap_or(19999);
     let coordinator_quorum = config.coordinator_quorum.clone();
@@ -127,8 +130,13 @@ async fn main() -> Result<()> {
 
 #[cfg(test)]
 mod test {
+    use std::borrow::BorrowMut;
+    use std::cell::RefCell;
+    use std::rc::Rc;
+    use tokio_stream::StreamExt;
     use crate::get_local_ip;
     use crate::proto::uniffle::shuffle_server_client::ShuffleServerClient;
+    use anyhow::Result;
 
     #[test]
     fn get_local_ip_test() {
