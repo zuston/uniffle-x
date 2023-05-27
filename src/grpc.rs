@@ -3,20 +3,20 @@ use log::{error, info};
 use toml::Value::String;
 use tonic::{Request, Response, Status};
 use crate::app::{GetBlocksContext, PartitionedUId, ReadingIndexViewContext, ReadingOptions, ReadingViewContext, ReportBlocksContext, RequireBufferContext, WritingViewContext};
-use crate::AppManagerRef;
+use crate::{AppManagerRef, StatusCode};
 use crate::proto::uniffle::shuffle_server_server::ShuffleServer;
 use crate::proto::uniffle::{AppHeartBeatRequest, AppHeartBeatResponse, FinishShuffleRequest, FinishShuffleResponse, GetLocalShuffleDataRequest, GetLocalShuffleDataResponse, GetLocalShuffleIndexRequest, GetLocalShuffleIndexResponse, GetMemoryShuffleDataRequest, GetMemoryShuffleDataResponse, GetShuffleResultForMultiPartRequest, GetShuffleResultForMultiPartResponse, GetShuffleResultRequest, GetShuffleResultResponse, ReportShuffleResultRequest, ReportShuffleResultResponse, RequireBufferRequest, RequireBufferResponse, SendShuffleDataRequest, SendShuffleDataResponse, ShuffleCommitRequest, ShuffleCommitResponse, ShuffleRegisterRequest, ShuffleRegisterResponse, ShuffleUnregisterRequest, ShuffleUnregisterResponse};
 use crate::proto::uniffle::coordinator_server_server::CoordinatorServer;
 use crate::store::{PartitionedData, PartitionedDataBlock, ResponseData, ResponseDataIndex};
 
 pub struct DefaultShuffleServer {
-    appManagerRef: AppManagerRef
+    app_manager_ref: AppManagerRef
 }
 
 impl DefaultShuffleServer {
     pub fn from(appManagerRef: AppManagerRef) -> DefaultShuffleServer {
         DefaultShuffleServer {
-            appManagerRef
+            app_manager_ref: appManagerRef
         }
     }
 }
@@ -25,9 +25,9 @@ impl DefaultShuffleServer {
 impl ShuffleServer for DefaultShuffleServer {
     async fn register_shuffle(&self, request: Request<ShuffleRegisterRequest>) -> Result<Response<ShuffleRegisterResponse>, Status> {
         let inner = request.into_inner();
-        let status = match self.appManagerRef.register(inner.app_id, inner.shuffle_id) {
+        let status = match self.app_manager_ref.register(inner.app_id, inner.shuffle_id) {
             Ok(_) => 0,
-            _ => 1
+            _ => 6
         };
         Ok(
             Response::new(ShuffleRegisterResponse {
@@ -52,7 +52,7 @@ impl ShuffleServer for DefaultShuffleServer {
         let app_id = req.app_id;
         let shuffle_id: i32 = req.shuffle_id;
 
-        let app_option = self.appManagerRef.get_app(&app_id);
+        let app_option = self.app_manager_ref.get_app(&app_id);
 
         if app_option.is_none() {
             return Ok(
@@ -101,7 +101,7 @@ impl ShuffleServer for DefaultShuffleServer {
         let partition_num = req.partition_num;
         let partition_per_range = req.partition_num_per_range;
 
-        let app_option = self.appManagerRef.get_app(&app_id);
+        let app_option = self.app_manager_ref.get_app(&app_id);
 
         if app_option.is_none() {
             return Ok(
@@ -148,7 +148,7 @@ impl ShuffleServer for DefaultShuffleServer {
         let shuffle_id: i32 = req.shuffle_id;
         let partition_id = req.partition_id;
 
-        let app = self.appManagerRef.get_app(&app_id).unwrap();
+        let app = self.app_manager_ref.get_app(&app_id).unwrap();
         let data = app.select(ReadingViewContext {
             uid: PartitionedUId {
                 app_id,
@@ -173,7 +173,7 @@ impl ShuffleServer for DefaultShuffleServer {
         let shuffle_id: i32 = req.shuffle_id;
         let partition_id = req.partition_id;
 
-        let app = self.appManagerRef.get_app(&app_id).unwrap();
+        let app = self.app_manager_ref.get_app(&app_id).unwrap();
         let data = app.select(ReadingViewContext {
             uid: PartitionedUId {
                 app_id,
@@ -205,7 +205,7 @@ impl ShuffleServer for DefaultShuffleServer {
         let shuffle_id = req.shuffle_id;
         let partition_to_block_ids = req.partition_to_block_ids;
 
-        let app = self.appManagerRef.get_app(&app_id).unwrap();
+        let app = self.app_manager_ref.get_app(&app_id).unwrap();
 
         for partition_to_block_id in partition_to_block_ids {
             let partition_id = partition_to_block_id.partition_id;
@@ -232,7 +232,7 @@ impl ShuffleServer for DefaultShuffleServer {
         let shuffle_id = req.shuffle_id;
         let partition_id = req.partition_id;
 
-        let app = self.appManagerRef.get_app(&app_id).unwrap();
+        let app = self.app_manager_ref.get_app(&app_id).unwrap();
         let data = app.get_block_ids(GetBlocksContext {
             uid: PartitionedUId {
                 app_id,
@@ -255,7 +255,7 @@ impl ShuffleServer for DefaultShuffleServer {
 
         let mut bytes_mut = BytesMut::new();
         for partition_id in req.partitions {
-            let app = self.appManagerRef.get_app(&app_id).unwrap();
+            let app = self.app_manager_ref.get_app(&app_id).unwrap();
             let data = app.get_block_ids(GetBlocksContext {
                 uid: PartitionedUId {
                     app_id: app_id.clone(),
@@ -289,7 +289,7 @@ impl ShuffleServer for DefaultShuffleServer {
         let app_id = req.app_id;
         let shuffle_id = req.shuffle_id;
 
-        let app = self.appManagerRef.get_app(&app_id).unwrap();
+        let app = self.app_manager_ref.get_app(&app_id).unwrap();
         let (is_ok, id) = app.require_buffer(RequireBufferContext {
             uid: PartitionedUId {
                 app_id,
@@ -314,7 +314,7 @@ impl ShuffleServer for DefaultShuffleServer {
     }
 
     async fn app_heartbeat(&self, request: Request<AppHeartBeatRequest>) -> Result<Response<AppHeartBeatResponse>, Status> {
-        info!("Accepted heatbeat for app: {:#?}", request.into_inner().app_id);
+        info!("Accepted heartbeat for app: {:#?}", request.into_inner().app_id);
         Ok(Response::new(AppHeartBeatResponse {
             status: 0,
             ret_msg: "".to_string()

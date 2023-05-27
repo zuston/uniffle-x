@@ -10,6 +10,7 @@ use dashmap::DashMap;
 use anyhow::{Result, anyhow};
 use bytes::{BufMut, Bytes, BytesMut};
 use dashmap::mapref::one::{Ref, RefMut};
+use log::info;
 use roaring::{RoaringTreemap, treemap};
 use tokio::runtime::Runtime;
 use tonic::codegen::ok;
@@ -243,6 +244,7 @@ impl AppManager {
     }
 
     pub fn register(&self, app_id: String, shuffle_id: i32) -> Result<()> {
+        info!("Accepted registry. app_id: {}, shuffle_id: {}", app_id.clone(), shuffle_id);
         let mut appRef = self.apps.entry(app_id.clone()).or_insert_with(|| App::from(app_id, None, self.store.clone()));
         appRef.register_shuffle(shuffle_id)
     }
