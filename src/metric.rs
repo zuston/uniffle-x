@@ -9,11 +9,11 @@ lazy_static! {
     pub static ref REGISTRY: Registry = Registry::new();
 
     pub static ref TOTAL_RECEIVED_DATA: IntCounter = IntCounter::new("total_received_data", "Incoming Requests").expect("metric should be created");
-    pub static ref TOTAL_MEMORY_USED: IntCounter = IntCounter::new("total_memory_used", "").expect("metric should be created");
+    pub static ref TOTAL_MEMORY_USED: IntCounter = IntCounter::new("total_memory_used", "Total memory used").expect("metric should be created");
 
-    pub static ref GAUGE_MEMORY_USED: IntGauge = IntGauge::new("memory_used", "").expect("metric should be created");
-    pub static ref GAUGE_MEMORY_ALLOCATED: IntGauge = IntGauge::new("memory_allocated", "").expect("metric should be created");
-    pub static ref GAUGE_MEMORY_CAPACITY: IntGauge = IntGauge::new("memory_capacity", "").expect("metric should be created");
+    pub static ref GAUGE_MEMORY_USED: IntGauge = IntGauge::new("memory_used", "memory used").expect("metric should be created");
+    pub static ref GAUGE_MEMORY_ALLOCATED: IntGauge = IntGauge::new("memory_allocated", "memory allocated").expect("metric should be created");
+    pub static ref GAUGE_MEMORY_CAPACITY: IntGauge = IntGauge::new("memory_capacity", "memory capacity").expect("metric should be created");
 }
 
 fn register_custom_metrics() {
