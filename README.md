@@ -7,3 +7,4 @@
 6. support concurrency limit of writing for per disk
 7. support s3
 8. support hdfs
+9. support single buffer flush
