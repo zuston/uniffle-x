@@ -6,9 +6,9 @@ use prometheus::{HistogramOpts, HistogramVec, IntCounter, IntCounterVec, IntGaug
 use warp::{Filter, Rejection, Reply};
 
 lazy_static! {
-     pub static ref REGISTRY: Registry = Registry::new();
+    pub static ref REGISTRY: Registry = Registry::new();
 
-     pub static ref INCOMING_REQUESTS: IntCounter = IntCounter::new("incoming_requests", "Incoming Requests").expect("metric should be created");
+    pub static ref INCOMING_REQUESTS: IntCounter = IntCounter::new("incoming_requests", "Incoming Requests").expect("metric should be created");
 }
 
 fn register_custom_metrics() {
