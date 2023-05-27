@@ -8,11 +8,21 @@ use warp::{Filter, Rejection, Reply};
 lazy_static! {
     pub static ref REGISTRY: Registry = Registry::new();
 
-    pub static ref INCOMING_REQUESTS: IntCounter = IntCounter::new("incoming_requests", "Incoming Requests").expect("metric should be created");
+    pub static ref TOTAL_RECEIVED_DATA: IntCounter = IntCounter::new("total_received_data", "Incoming Requests").expect("metric should be created");
+    pub static ref TOTAL_MEMORY_USED: IntCounter = IntCounter::new("total_memory_used", "").expect("metric should be created");
+
+    pub static ref GAUGE_MEMORY_USED: IntGauge = IntGauge::new("memory_used", "").expect("metric should be created");
+    pub static ref GAUGE_MEMORY_ALLOCATED: IntGauge = IntGauge::new("memory_allocated", "").expect("metric should be created");
+    pub static ref GAUGE_MEMORY_CAPACITY: IntGauge = IntGauge::new("memory_capacity", "").expect("metric should be created");
 }
 
 fn register_custom_metrics() {
-    REGISTRY.register(Box::new(INCOMING_REQUESTS.clone())).expect("in_coming_requests has been registered")
+    REGISTRY.register(Box::new(TOTAL_RECEIVED_DATA.clone())).expect("total_received_data must be registered");
+    REGISTRY.register(Box::new(TOTAL_MEMORY_USED.clone())).expect("total_memory_used must be registered");
+
+    REGISTRY.register(Box::new(GAUGE_MEMORY_USED.clone())).expect("memory_used must be registered");
+    REGISTRY.register(Box::new(GAUGE_MEMORY_ALLOCATED.clone())).expect("memory_allocated must be registered");
+    REGISTRY.register(Box::new(GAUGE_MEMORY_CAPACITY.clone())).expect("memory_capacity must be registered");
 }
 
 async fn metrics_handler() -> Result<impl Reply, Rejection> {
