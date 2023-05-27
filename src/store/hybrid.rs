@@ -76,10 +76,9 @@ impl Store for HybridStore {
         let store = self.clone();
         tokio::spawn(async move {
             while let Ok(message) = store.memory_spill_recv.recv().await {
-
                 let store_cloned = store.clone();
                 tokio::spawn(async move {
-                    match store.memory_spill_to_localfile(message.ctx, message.id).await {
+                    match store_cloned.memory_spill_to_localfile(message.ctx, message.id).await {
                         Ok(msg) => info!("{}", msg),
                         Err(error) => error!("Errors on spilling memory data to localfile. error: {:#?}", error)
                     }

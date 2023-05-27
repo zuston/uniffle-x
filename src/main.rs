@@ -20,6 +20,7 @@ use crate::config::{Config, LogConfig, RotationConfig};
 use crate::metric::start_metric_service;
 use crate::proto::uniffle::coordinator_server_client::CoordinatorServerClient;
 use crate::proto::uniffle::{ShuffleServerHeartBeatRequest, ShuffleServerId, StatusCode};
+use crate::util::get_local_ip;
 
 pub mod proto;
 pub mod app;
@@ -29,13 +30,6 @@ mod error;
 mod config;
 mod metric;
 mod util;
-
-fn get_local_ip() -> Result<IpAddr, std::io::Error> {
-    let socket = std::net::UdpSocket::bind("0.0.0.0:0")?;
-    socket.connect("8.8.8.8:80")?;
-    let local_addr = socket.local_addr()?;
-    Ok(local_addr.ip())
-}
 
 async fn schedule_coordinator_report(
     app_manager: AppManagerRef,
