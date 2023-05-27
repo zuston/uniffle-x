@@ -29,7 +29,7 @@ pub struct Config {
     pub grpc_port: Option<i32>,
     pub metric_http_port: Option<i32>,
     pub coordinator_quorum: Vec<String>,
-    pub tags: Vec<String>,
+    pub tags: Option<Vec<String>>,
 
     pub log: Option<LogConfig>
 }

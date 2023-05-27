@@ -124,7 +124,7 @@ async fn main() -> Result<()> {
 
     let rpc_port = config.grpc_port.unwrap_or(19999);
     let coordinator_quorum = config.coordinator_quorum.clone();
-    let tags = config.tags.clone();
+    let tags = config.tags.clone().unwrap_or(vec![]);
     let app_manager_ref = AppManager::get_ref(config);
     let _ = schedule_coordinator_report(
         app_manager_ref.clone(),
