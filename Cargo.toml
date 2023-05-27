@@ -17,8 +17,8 @@ tokio-stream = { version = "0.1", features = ["sync"] } # 处理 stream
 tokio-util = { version = "0.6", features = ["compat"]} # tokio 和 futures 的兼容性库
 toml = "0.7.4" # toml 支持
 tracing = "0.1" # 日志处理
-tracing-appender = "0.1" # 文件日志
-tracing-subscriber = { version = "0.2", features = ["json", "chrono"] } # 日志处理
+tracing-appender = "0.2" # 文件日志
+tracing-subscriber = { version = "0.3", features = ["env-filter"] } # 日志处理
 tonic = "0.9.1"
 prost = "0.11.8"
 bytes = "1" # 高效处理网络 buffer 的库
@@ -35,7 +35,6 @@ futures = "0.3"
 serde = { version = "1", features = ["derive"] } # 序列化/反序列化
 async-channel = "1.8.0"
 roaring = "0.10.1"
-local-ip-address = "0.5.3"
 
 [build-dependencies]
 tonic-build = "0.9.1"

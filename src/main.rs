@@ -10,8 +10,10 @@ use crate::grpc::DefaultShuffleServer;
 use crate::proto::uniffle::shuffle_server_server::ShuffleServerServer;
 use anyhow::{Result, anyhow};
 use log::info;
-use tracing_subscriber::fmt::format;
-use crate::config::Config;
+use tracing_subscriber::{EnvFilter, fmt, Registry};
+use tracing_subscriber::layer::SubscriberExt;
+use tracing_subscriber::util::SubscriberInitExt;
+use crate::config::{Config, LogConfig, RotationConfig};
 use crate::proto::uniffle::coordinator_server_client::CoordinatorServerClient;
 use crate::proto::uniffle::{ShuffleServerHeartBeatRequest, ShuffleServerId, StatusCode};
 
@@ -73,11 +75,40 @@ async fn schedule_coordinator_report(app_manager: AppManagerRef, coordinator_quo
     Ok(())
 }
 
+const LOG_FILE_NAME: &str = "uniffle-datanode.log";
+
+fn init_log(log: &LogConfig) {
+    let file_appender = match log.rotation {
+        RotationConfig::Hourly => tracing_appender::rolling::hourly(&log.path, LOG_FILE_NAME),
+        RotationConfig::Daily => tracing_appender::rolling::daily(&log.path, LOG_FILE_NAME),
+        RotationConfig::Never => tracing_appender::rolling::never(&log.path, LOG_FILE_NAME),
+    };
+
+    let env_filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
+    let formatting_layer = fmt::layer().pretty().with_writer(std::io::stderr);
+
+    let file_appender = tracing_appender::rolling::hourly(&log.path, LOG_FILE_NAME);
+    let (non_blocking, _guard) = tracing_appender::non_blocking(file_appender);
+    let file_layer = fmt::layer()
+        .with_ansi(false)
+        .with_writer(non_blocking);
+
+    Registry::default()
+        .with(env_filter)
+        .with(formatting_layer)
+        .with(file_layer)
+        .init();
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
-    env_logger::init();
-
     let config = Config::create_from_env();
+
+    // init the log
+    let log = config.log.clone();
+    let log = &log.unwrap_or(Default::default());
+    init_log(log);
+
     let rpc_port = config.grpc_port.unwrap_or(19999);
     let coordinator_quorum = config.coordinator_quorum.clone();
     let app_manager_ref = AppManager::get_ref(config);
@@ -104,9 +135,4 @@ mod test {
         let ip = get_local_ip().unwrap();
         println!("{}", ip.to_string());
     }
-
-    // #[test]
-    // async fn put_get_in_local_grpc() {
-    //     let client = ShuffleServerClient::connect("http://127.0.0.0:19999").await?;
-    // }
 }

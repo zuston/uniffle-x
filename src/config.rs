@@ -27,7 +27,31 @@ pub struct Config {
     pub store_type: Option<StorageType>,
 
     pub grpc_port: Option<i32>,
-    pub coordinator_quorum: Vec<String>
+    pub coordinator_quorum: Vec<String>,
+
+    pub log: Option<LogConfig>
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub struct LogConfig {
+    pub path: String,
+    pub rotation: RotationConfig,
+}
+
+impl Default for LogConfig {
+    fn default() -> Self {
+        LogConfig {
+            path: "/tmp/".to_string(),
+            rotation: RotationConfig::Hourly
+        }
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub enum RotationConfig {
+    Hourly,
+    Daily,
+    Never,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
@@ -53,17 +77,6 @@ impl Config {
 
         toml::from_str(&file_content).unwrap()
     }
-
-    pub fn create(conf_path: &str) -> Config {
-        Config {
-            memory_store: None,
-            localfile_store: None,
-            hybrid_store: None,
-            store_type: None,
-            grpc_port: None,
-            coordinator_quorum: vec!["xxxxxx".to_string()]
-        }
-    }
 }
 
 #[cfg(test)]
@@ -74,6 +87,7 @@ mod test {
     fn config_test() {
         let toml_str = r#"
         store_type = "MEMORY_LOCALFILE"
+        coordinator_quorum = ["xxxxxxx"]
 
         [memory_store]
         capacity = 1024

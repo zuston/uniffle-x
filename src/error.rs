@@ -1,6 +1,5 @@
 use std::fmt::{Display, Formatter, Write};
 use crossbeam_channel::SendError;
-use log::error;
 use thiserror::Error;
 use crate::app::PurgeEvent;
 

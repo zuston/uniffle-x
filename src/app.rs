@@ -13,7 +13,6 @@ use dashmap::mapref::one::{Ref, RefMut};
 use roaring::{RoaringTreemap, treemap};
 use tokio::runtime::Runtime;
 use tonic::codegen::ok;
-use tracing::callsite::register;
 use crate::config::Config;
 use crate::error::DatanodeError;
 use crate::proto::uniffle::ShuffleData;

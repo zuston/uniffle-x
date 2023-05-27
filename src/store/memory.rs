@@ -431,7 +431,6 @@ mod test {
     use async_trait::async_trait;
     use bytes::{Bytes, BytesMut};
     use dashmap::DashMap;
-    use log::Level::Debug;
     use crate::app::{PartitionedUId, ReadingOptions, ReadingViewContext, RequireBufferContext, WritingViewContext};
     use crate::config::HybridStoreConfig;
     use crate::store::{PartitionedDataBlock, PartitionedMemoryData, ResponseData, Store};
