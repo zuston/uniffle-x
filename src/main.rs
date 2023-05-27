@@ -1,7 +1,7 @@
 extern crate core;
 
 use std::borrow::BorrowMut;
-use std::net::IpAddr;
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::rc::Rc;
 use std::sync::Arc;
 use std::time::Duration;
@@ -133,8 +133,8 @@ async fn main() -> Result<()> {
         tags).await;
 
     info!("Starting GRpc server with port:[{}] ......", rpc_port);
-    let addr = format!("[::1]:{}", rpc_port).parse()?;
     let shuffle_server = DefaultShuffleServer::from(app_manager_ref);
+    let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)), rpc_port as u16);
     Server::builder()
         .add_service(ShuffleServerServer::new(shuffle_server))
         .serve(addr)
