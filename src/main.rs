@@ -83,7 +83,7 @@ async fn schedule_coordinator_report(
             // It must use the 0..len to avoid borrow check in loop.
             for idx in 0..multi_coordinator_clients.len() {
                 let client = multi_coordinator_clients.get_mut(idx).unwrap();
-                client.heartbeat(tonic::Request::new(heartbeat_req.clone())).await;
+                let _ = client.heartbeat(tonic::Request::new(heartbeat_req.clone())).await;
             }
         }
     });
@@ -103,7 +103,6 @@ fn init_log(log: &LogConfig) {
     let env_filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
     let formatting_layer = fmt::layer().pretty().with_writer(std::io::stderr);
 
-    let file_appender = tracing_appender::rolling::hourly(&log.path, LOG_FILE_NAME);
     let (non_blocking, _guard) = tracing_appender::non_blocking(file_appender);
     let file_layer = fmt::layer()
         .with_ansi(false)
