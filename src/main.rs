@@ -36,7 +36,12 @@ fn get_local_ip() -> Result<IpAddr, std::io::Error> {
     Ok(local_addr.ip())
 }
 
-async fn schedule_coordinator_report(app_manager: AppManagerRef, coordinator_quorum: Vec<String>, grpc_port: i32) -> anyhow::Result<()> {
+async fn schedule_coordinator_report(
+    app_manager: AppManagerRef,
+    coordinator_quorum: Vec<String>,
+    grpc_port: i32,
+    tags: Vec<String>) -> anyhow::Result<()> {
+
     tokio::spawn(async move {
 
         let ip = get_local_ip().unwrap().to_string();
@@ -59,13 +64,17 @@ async fn schedule_coordinator_report(app_manager: AppManagerRef, coordinator_quo
             // todo: add interval as config var
             tokio::time::sleep(Duration::from_secs(10)).await;
 
+            let mut all_tags = vec![];
+            all_tags.push("ss_v4".to_string());
+            all_tags.extend_from_slice(&*tags);
+
             let heartbeat_req = ShuffleServerHeartBeatRequest {
                 server_id: Some(shuffle_server_id.clone()),
                 used_memory: 0,
                 pre_allocated_memory: 0,
                 available_memory: 1024 * 1024 * 1024 * 10,
                 event_num_in_flush: 0,
-                tags: vec!["ss_v4".to_string()],
+                tags: all_tags,
                 is_healthy: Some(true),
                 status: 0,
                 storage_info: Default::default()
@@ -121,8 +130,13 @@ async fn main() -> Result<()> {
 
     let rpc_port = config.grpc_port.unwrap_or(19999);
     let coordinator_quorum = config.coordinator_quorum.clone();
+    let tags = config.tags.clone();
     let app_manager_ref = AppManager::get_ref(config);
-    let _ = schedule_coordinator_report(app_manager_ref.clone(), coordinator_quorum, rpc_port).await;
+    let _ = schedule_coordinator_report(
+        app_manager_ref.clone(),
+        coordinator_quorum,
+        rpc_port,
+        tags).await;
 
     info!("Starting GRpc server with port:[{}] ......", rpc_port);
     let addr = format!("[::1]:{}", rpc_port).parse()?;
