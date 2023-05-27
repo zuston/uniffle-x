@@ -17,6 +17,7 @@ use tracing_subscriber::{EnvFilter, fmt, Registry};
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 use crate::config::{Config, LogConfig, RotationConfig};
+use crate::metric::start_metric_service;
 use crate::proto::uniffle::coordinator_server_client::CoordinatorServerClient;
 use crate::proto::uniffle::{ShuffleServerHeartBeatRequest, ShuffleServerId, StatusCode};
 
@@ -26,6 +27,7 @@ pub mod store;
 pub mod grpc;
 mod error;
 mod config;
+mod metric;
 
 fn get_local_ip() -> Result<IpAddr, std::io::Error> {
     let socket = std::net::UdpSocket::bind("0.0.0.0:0")?;
@@ -109,8 +111,13 @@ fn init_log(log: &LogConfig) {
 async fn main() -> Result<()> {
     let config = Config::create_from_env();
 
+    // init log
     let log_config = &config.log.clone().unwrap_or(Default::default());
     init_log(log_config);
+
+    // start metric service to expose http api
+    let metric_http_port = config.metric_http_port.unwrap_or(19998);
+    start_metric_service(metric_http_port);
 
     let rpc_port = config.grpc_port.unwrap_or(19999);
     let coordinator_quorum = config.coordinator_quorum.clone();

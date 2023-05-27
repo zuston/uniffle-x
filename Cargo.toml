@@ -35,6 +35,9 @@ futures = "0.3"
 serde = { version = "1", features = ["derive"] } # 序列化/反序列化
 async-channel = "1.8.0"
 roaring = "0.10.1"
+warp = "0.3.2"
+prometheus = { version = "0.13", features = ["process"] }
+lazy_static = "1.4"
 
 [build-dependencies]
 tonic-build = "0.9.1"
