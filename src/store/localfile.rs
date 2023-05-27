@@ -83,7 +83,7 @@ impl Store for LocalFileStore {
             self.local_disks.get(0).unwrap().clone()
         }).clone();
 
-        self.file_locks.entry(data_file_path.clone()).or_insert_with(|| RwLock::new(())).write().await;
+        self.file_locks.entry(data_file_path.clone()).or_insert_with(|| RwLock::new(())).write().await?;
 
         // write index file and data file
         // todo: split multiple pieces
@@ -112,12 +112,8 @@ impl Store for LocalFileStore {
         }
 
         // data file write
-        match local_disk.write(bytes_holder.freeze(), data_file_path.clone()).await {
-            Ok(_) => {
-                local_disk.write(index_bytes_holder.freeze(), index_file_path).await
-            },
-            _ => Ok(())
-        }
+        local_disk.write(bytes_holder.freeze(), data_file_path.clone()).await?;
+        local_disk.write(index_bytes_holder.freeze(), index_file_path).await?;
     }
 
     async fn get(&self, ctx: ReadingViewContext) -> Result<ResponseData> {

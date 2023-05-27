@@ -9,10 +9,11 @@ use crate::store::{ResponseData, ResponseDataIndex, Store};
 use crate::store::localfile::LocalFileStore;
 use async_trait::async_trait;
 use anyhow::{Result, anyhow};
-use log::{error, info};
+use log::{debug, error, info};
 use tokio::sync::{mpsc, Mutex, oneshot};
 use tokio::sync::mpsc::Receiver;
 use tokio::task::JoinHandle;
+use tracing::field::debug;
 use crate::config;
 use crate::config::{Config, HybridStoreConfig, LocalfileStoreConfig};
 use crate::store::ResponseData::mem;
@@ -50,16 +51,17 @@ impl HybridStore {
     }
 
     async fn memory_spill_to_localfile(&self, ctx: WritingViewContext, in_flight_blocks_id: i64) -> Result<String> {
-        println!("Doing spill");
+        debug!("Doing spill");
         let uid = ctx.uid.clone();
         let blocks = &ctx.data_blocks;
         let mut spill_size = 0i64;
         for block in blocks {
             spill_size += block.length as i64;
         }
-        let result = self.warm_store.insert(ctx).await;
-        let _ = self.hot_store.release_in_flight_blocks_in_underlying_staging_buffer(uid, in_flight_blocks_id).await;
-        self.hot_store.free_memory(spill_size).await.expect("TODO: panic message");
+
+        self.warm_store.insert(ctx).await?;
+        self.hot_store.release_in_flight_blocks_in_underlying_staging_buffer(uid, in_flight_blocks_id).await?;
+        self.hot_store.free_memory(spill_size).await?;
 
         Ok(format!("writing view context: {}, flush size: {}", 1, in_flight_blocks_id))
     }
@@ -74,20 +76,23 @@ impl Store for HybridStore {
         let store = self.clone();
         tokio::spawn(async move {
             while let Ok(message) = store.memory_spill_recv.recv().await {
-                match store.memory_spill_to_localfile(message.ctx, message.id).await {
-                    Ok(msg) => info!("{}", msg),
-                    Err(error) => error!("Errors on spilling memory data to localfile. error: {:#?}", error)
-                }
+
+                let store_cloned = store.clone();
+                tokio::spawn(async move {
+                    match store.memory_spill_to_localfile(message.ctx, message.id).await {
+                        Ok(msg) => info!("{}", msg),
+                        Err(error) => error!("Errors on spilling memory data to localfile. error: {:#?}", error)
+                    }
+                });
             }
         });
     }
 
-    // todo: check the consistency problems
     async fn insert(&self, ctx: WritingViewContext) -> Result<()> {
         let insert_result = self.hot_store.insert(ctx).await;
         let spill_lock = self.memory_spill_lock.lock().await;
         let used_ratio = self.hot_store.memory_usage_ratio().await;
-        println!("used ratio: {}", used_ratio);
+        debug!("used ratio: {}", used_ratio);
         if used_ratio > self.config.memory_spill_high_watermark {
             let target_size = (self.hot_store.memory_capacity as f32 * self.config.memory_spill_low_watermark) as i64;
             let buffers = self.hot_store.get_required_spill_buffer(target_size).await;
@@ -102,12 +107,14 @@ impl Store for HybridStore {
                 let in_flight_block_id = buffer_inner.add_blocks_to_send(blocks).unwrap();
                 buffer_inner.staging.clear();
 
-                let _ = self.memory_spill_send.send(SpillMessage {
+                if self.memory_spill_send.send(SpillMessage {
                     ctx: writingCtx,
                     id: in_flight_block_id
-                }).await;
+                }).await.is_err() {
+                    error!("Errors on sending spill message to queue. This should not happen.");
+                }
             }
-            println!("Doing spilling....");
+            debug!("Doing spilling in background....");
         }
         insert_result
     }

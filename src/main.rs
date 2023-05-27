@@ -28,6 +28,7 @@ pub mod grpc;
 mod error;
 mod config;
 mod metric;
+mod util;
 
 fn get_local_ip() -> Result<IpAddr, std::io::Error> {
     let socket = std::net::UdpSocket::bind("0.0.0.0:0")?;
