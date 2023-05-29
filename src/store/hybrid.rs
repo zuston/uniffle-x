@@ -9,7 +9,9 @@ use crate::store::{ResponseData, ResponseDataIndex, Store};
 use crate::store::localfile::LocalFileStore;
 use async_trait::async_trait;
 use anyhow::{Result, anyhow};
+use async_channel::TryRecvError;
 use log::{debug, error, info};
+use tokio::runtime::Runtime;
 use tokio::sync::{mpsc, Mutex, oneshot};
 use tokio::sync::mpsc::Receiver;
 use tokio::task::JoinHandle;
@@ -51,7 +53,7 @@ impl HybridStore {
     }
 
     async fn memory_spill_to_localfile(&self, ctx: WritingViewContext, in_flight_blocks_id: i64) -> Result<String> {
-        debug!("Doing spill");
+        info!("Doing spill");
         let uid = ctx.uid.clone();
         let blocks = &ctx.data_blocks;
         let mut spill_size = 0i64;
@@ -75,15 +77,22 @@ impl Store for HybridStore {
     fn start(self: Arc<HybridStore>) {
         let store = self.clone();
         tokio::spawn(async move {
-            while let Ok(message) = store.memory_spill_recv.recv().await {
-                info!("Accepted spill event...");
-                let store_cloned = store.clone();
-                tokio::spawn(async move {
-                    match store_cloned.memory_spill_to_localfile(message.ctx, message.id).await {
-                        Ok(msg) => info!("{}", msg),
-                        Err(error) => error!("Errors on spilling memory data to localfile. error: {:#?}", error)
+            loop {
+                match store.memory_spill_recv.try_recv() {
+                    Ok(message) => {
+                        info!("Accepted spill event...");
+                        let store_cloned = store.clone();
+                        tokio::spawn(async move {
+                            match store_cloned.memory_spill_to_localfile(message.ctx, message.id).await {
+                                Ok(msg) => info!("{}", msg),
+                                Err(error) => error!("Errors on spilling memory data to localfile. error: {:#?}", error)
+                            }
+                        });
                     }
-                });
+                    Err(_) => {}
+                }
+
+                tokio::time::sleep(Duration::from_millis(10)).await;
             }
         });
     }

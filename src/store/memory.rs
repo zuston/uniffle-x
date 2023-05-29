@@ -50,20 +50,20 @@ impl MemoryStore {
     pub async fn memory_usage_ratio(&self) -> f32 {
         let (capacity, allocated, used) = self.budget.snapshot().await;
 
-        let mut in_flight = 0i64;
-        for app_entry in self.state.iter() {
-            for shuffle_entry in app_entry.value().iter() {
-                for partition_entry in shuffle_entry.value().iter() {
-                    for (_, blocks) in partition_entry.value().lock().await.in_flight.iter() {
-                        for block in blocks {
-                            in_flight += block.length as i64;
-                        }
-                    }
-                }
-            }
-        }
+        // let mut in_flight = 0i64;
+        // for app_entry in self.state.iter() {
+        //     for shuffle_entry in app_entry.value().iter() {
+        //         for partition_entry in shuffle_entry.value().iter() {
+        //             for (_, blocks) in partition_entry.value().lock().await.in_flight.iter() {
+        //                 for block in blocks {
+        //                     in_flight += block.length as i64;
+        //                 }
+        //             }
+        //         }
+        //     }
+        // }
 
-        (allocated + used - in_flight) as f32 / capacity as f32
+        (allocated + used) as f32 / capacity as f32
     }
 
     pub async fn free_memory(&self, size: i64) -> Result<bool> {
