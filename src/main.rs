@@ -13,6 +13,7 @@ use anyhow::{Result, anyhow};
 use async_trait::async_trait;
 use futures::StreamExt;
 use log::info;
+use tracing_appender::non_blocking::WorkerGuard;
 use tracing_subscriber::{EnvFilter, fmt, Registry};
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
@@ -88,7 +89,7 @@ async fn schedule_coordinator_report(
 
 const LOG_FILE_NAME: &str = "uniffle-datanode.log";
 
-fn init_log(log: &LogConfig) {
+fn init_log(log: &LogConfig) -> WorkerGuard {
     let file_appender = match log.rotation {
         RotationConfig::Hourly => tracing_appender::rolling::hourly(&log.path, LOG_FILE_NAME),
         RotationConfig::Daily => tracing_appender::rolling::daily(&log.path, LOG_FILE_NAME),
@@ -101,6 +102,7 @@ fn init_log(log: &LogConfig) {
     let (non_blocking, _guard) = tracing_appender::non_blocking(file_appender);
     let file_layer = fmt::layer()
         .with_ansi(false)
+        .with_line_number(true)
         .with_writer(non_blocking);
 
     Registry::default()
@@ -108,6 +110,11 @@ fn init_log(log: &LogConfig) {
         .with(formatting_layer)
         .with(file_layer)
         .init();
+
+    // Note: _guard is a WorkerGuard which is returned by tracing_appender::non_blocking to
+    // ensure buffered logs are flushed to their output in the case of abrupt terminations of a process.
+    // See WorkerGuard module for more details.
+    _guard
 }
 
 #[tokio::main]
@@ -116,7 +123,7 @@ async fn main() -> Result<()> {
 
     // init log
     let log_config = &config.log.clone().unwrap_or(Default::default());
-    init_log(log_config);
+    let _guard = init_log(log_config);
 
     // start metric service to expose http api
     let metric_http_port = config.metric_http_port.unwrap_or(19998);
