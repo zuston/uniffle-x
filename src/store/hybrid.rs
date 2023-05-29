@@ -77,22 +77,15 @@ impl Store for HybridStore {
     fn start(self: Arc<HybridStore>) {
         let store = self.clone();
         tokio::spawn(async move {
-            loop {
-                match store.memory_spill_recv.try_recv() {
-                    Ok(message) => {
-                        info!("Accepted spill event...");
-                        let store_cloned = store.clone();
-                        tokio::spawn(async move {
-                            match store_cloned.memory_spill_to_localfile(message.ctx, message.id).await {
-                                Ok(msg) => info!("{}", msg),
-                                Err(error) => error!("Errors on spilling memory data to localfile. error: {:#?}", error)
-                            }
-                        });
+            while let Ok(message) = store.memory_spill_recv.recv().await {
+                info!("Accepted spill event...");
+                let store_cloned = store.clone();
+                tokio::spawn(async move {
+                    match store_cloned.memory_spill_to_localfile(message.ctx, message.id).await {
+                        Ok(msg) => info!("{}", msg),
+                        Err(error) => error!("Errors on spilling memory data to localfile. error: {:#?}", error)
                     }
-                    Err(_) => {}
-                }
-
-                tokio::time::sleep(Duration::from_millis(10)).await;
+                });
             }
         });
     }
@@ -123,7 +116,7 @@ impl Store for HybridStore {
                     error!("Errors on sending spill message to queue. This should not happen.");
                 }
             }
-            debug!("Doing spilling in background....");
+            info!("Doing spilling in background....");
         }
         insert_result
     }

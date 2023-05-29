@@ -206,13 +206,13 @@ pub struct AppManager {
 impl AppManager {
     fn new(config: Config) -> Self {
         let (sender, receiver) = crossbeam_channel::unbounded();
+        let store = Arc::new(StoreProvider::get(config));
+        store.clone().start();
         let manager = AppManager {
             apps: DashMap::new(),
             receiver,
             sender,
-            store: Arc::new(
-                StoreProvider::get(config)
-            )
+            store
         };
         manager
     }
