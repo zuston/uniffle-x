@@ -76,6 +76,7 @@ impl Store for HybridStore {
         let store = self.clone();
         tokio::spawn(async move {
             while let Ok(message) = store.memory_spill_recv.recv().await {
+                info!("Accepted spill event...");
                 let store_cloned = store.clone();
                 tokio::spawn(async move {
                     match store_cloned.memory_spill_to_localfile(message.ctx, message.id).await {

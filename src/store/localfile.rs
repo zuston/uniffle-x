@@ -12,6 +12,7 @@ use tokio::fs::OpenOptions;
 use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt};
 use crate::store::{LocalDataIndex, PartitionedLocalData, ResponseData, ResponseDataIndex, Store};
 use async_trait::async_trait;
+use log::debug;
 use tokio::sync::RwLock;
 use tonic::codegen::ok;
 use crate::app::ReadingOptions::FILE_OFFSET_AND_LEN;
@@ -114,6 +115,8 @@ impl Store for LocalFileStore {
         // data file write
         local_disk.write(bytes_holder.freeze(), data_file_path.clone()).await?;
         local_disk.write(index_bytes_holder.freeze(), index_file_path).await?;
+
+        debug!("Finished data writing....");
 
         Ok(())
     }
