@@ -15,12 +15,17 @@ lazy_static! {
     pub static ref GAUGE_MEMORY_USED: IntGauge = IntGauge::new("memory_used", "memory used").expect("metric should be created");
     pub static ref GAUGE_MEMORY_ALLOCATED: IntGauge = IntGauge::new("memory_allocated", "memory allocated").expect("metric should be created");
     pub static ref GAUGE_MEMORY_CAPACITY: IntGauge = IntGauge::new("memory_capacity", "memory capacity").expect("metric should be created");
+
+    pub static ref TOTAL_MEMORY_SPILL_OPERATION: IntGauge = IntGauge::new("total_memory_spill_operation", "memory capacity").expect("metric should be created");
+    pub static ref TOTAL_MEMORY_SPILL_OPERATION_FAILED: IntGauge = IntGauge::new("total_memory_spill_operation_failed", "memory capacity").expect("metric should be created");
 }
 
 fn register_custom_metrics() {
     REGISTRY.register(Box::new(TOTAL_RECEIVED_DATA.clone())).expect("total_received_data must be registered");
     REGISTRY.register(Box::new(TOTAL_MEMORY_USED.clone())).expect("total_memory_used must be registered");
     REGISTRY.register(Box::new(TOTAL_LOCALFILE_USED.clone())).expect("total_localfile_used must be registered");
+    REGISTRY.register(Box::new(TOTAL_MEMORY_SPILL_OPERATION.clone())).expect("total_memory_spill_operation must be registered");
+    REGISTRY.register(Box::new(TOTAL_MEMORY_SPILL_OPERATION_FAILED.clone())).expect("total_memory_spill_operation_failed must be registered");
 
     REGISTRY.register(Box::new(GAUGE_MEMORY_USED.clone())).expect("memory_used must be registered");
     REGISTRY.register(Box::new(GAUGE_MEMORY_ALLOCATED.clone())).expect("memory_allocated must be registered");

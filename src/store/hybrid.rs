@@ -18,6 +18,7 @@ use tokio::task::JoinHandle;
 use tracing::field::debug;
 use crate::config;
 use crate::config::{Config, HybridStoreConfig, LocalfileStoreConfig};
+use crate::metric::{TOTAL_MEMORY_SPILL_OPERATION, TOTAL_MEMORY_SPILL_OPERATION_FAILED};
 use crate::store::ResponseData::mem;
 
 pub struct HybridStore {
@@ -60,11 +61,13 @@ impl HybridStore {
             spill_size += block.length as i64;
         }
 
+        let message = format!("partition uid: {:?}, memory spilled size: {}", ctx.uid.clone(), in_flight_blocks_id);
+
         self.warm_store.insert(ctx).await?;
         self.hot_store.release_in_flight_blocks_in_underlying_staging_buffer(uid, in_flight_blocks_id).await?;
         self.hot_store.free_memory(spill_size).await?;
 
-        Ok(format!("writing view context: {}, flush size: {}", 1, in_flight_blocks_id))
+        Ok(message)
     }
 }
 
@@ -77,12 +80,15 @@ impl Store for HybridStore {
         let store = self.clone();
         tokio::spawn(async move {
             while let Ok(message) = store.memory_spill_recv.recv().await {
-                info!("Accepted spill event...");
+                TOTAL_MEMORY_SPILL_OPERATION.inc();
                 let store_cloned = store.clone();
                 tokio::spawn(async move {
                     match store_cloned.memory_spill_to_localfile(message.ctx, message.id).await {
                         Ok(msg) => info!("{}", msg),
-                        Err(error) => error!("Errors on spilling memory data to localfile. error: {:#?}", error)
+                        Err(error) => {
+                            TOTAL_MEMORY_SPILL_OPERATION_FAILED.inc();
+                            error!("Errors on spilling memory data to localfile. error: {:#?}", error)
+                        }
                     }
                 });
             }

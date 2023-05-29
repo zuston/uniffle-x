@@ -221,7 +221,7 @@ impl LocalDisk {
             _ => todo!()
         }
 
-        println!("data file: {}", absolute_path.clone());
+        debug!("data file: {}", absolute_path.clone());
 
         let mut output_file= OpenOptions::new().append(true).create(true).open(absolute_path).await?;
         output_file.write_all(data.as_ref()).await?;
