@@ -121,7 +121,7 @@ impl Store for HybridStore {
                     error!("Errors on sending spill message to queue. This should not happen.");
                 }
             }
-            info!("Doing spilling in background....");
+            debug!("Trigger spilling in background....");
         }
         insert_result
     }

@@ -17,6 +17,7 @@ use tokio::sync::RwLock;
 use tonic::codegen::ok;
 use crate::app::ReadingOptions::FILE_OFFSET_AND_LEN;
 use crate::config::LocalfileStoreConfig;
+use crate::util::ConcurrencyLimit;
 
 fn create_directory_if_not_exists(dir_path: &str) {
     if !std::fs::metadata(dir_path).is_ok() {
@@ -185,7 +186,8 @@ impl Store for LocalFileStore {
 
 struct LocalDisk {
     base_path: String,
-    partition_file_len: DashMap<String, i64>
+    partition_file_len: DashMap<String, i64>,
+    concurrency_limiter: ConcurrencyLimit
 }
 
 impl LocalDisk {
@@ -193,7 +195,8 @@ impl LocalDisk {
         create_directory_if_not_exists(&path);
         LocalDisk {
             base_path: path,
-            partition_file_len: DashMap::new()
+            partition_file_len: DashMap::new(),
+            concurrency_limiter: ConcurrencyLimit::new(40)
         }
     }
 
@@ -209,6 +212,7 @@ impl LocalDisk {
     }
 
     async fn write(&self, data: Bytes, relative_file_path: String) -> Result<()> {
+        self.concurrency_limiter.get_token().await;
         let absolute_path = self.append_path(relative_file_path.clone());
         let path = Path::new(&absolute_path);
 
@@ -230,6 +234,7 @@ impl LocalDisk {
         let mut val = self.partition_file_len.entry(relative_file_path).or_insert(0);
         *val += data.len() as i64;
 
+        self.concurrency_limiter.return_token().await;
         Ok(())
     }
 
