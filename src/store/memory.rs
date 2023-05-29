@@ -13,7 +13,7 @@ use crate::store::{DataSegment, PartitionedDataBlock, PartitionedMemoryData, Res
 use async_trait::async_trait;
 use tokio::sync::Mutex;
 use crate::config::MemoryStoreConfig;
-use crate::metric::GAUGE_MEMORY_CAPACITY;
+use crate::metric::{GAUGE_MEMORY_ALLOCATED, GAUGE_MEMORY_CAPACITY, GAUGE_MEMORY_USED};
 
 pub struct MemoryStore {
     // todo: change to RW lock
@@ -37,7 +37,6 @@ impl MemoryStore {
     }
 
     pub fn from(conf: MemoryStoreConfig) -> Self {
-        GAUGE_MEMORY_CAPACITY.set(conf.capacity);
         MemoryStore {
             state: DashMap::new(),
             budget: MemoryBudget::new(conf.capacity),
@@ -353,6 +352,7 @@ struct MemoryBudgetInner {
 
 impl MemoryBudget {
     fn new(capacity: i64) -> MemoryBudget {
+        GAUGE_MEMORY_CAPACITY.set(capacity);
         MemoryBudget {
             inner: Arc::new(
                 Mutex::new(
@@ -386,6 +386,7 @@ impl MemoryBudget {
             inner.allocated += size;
             let now = inner.allocation_incr_id;
             inner.allocation_incr_id += 1;
+            GAUGE_MEMORY_ALLOCATED.set(inner.allocated);
             Ok((true, now))
         }
     }
@@ -398,6 +399,8 @@ impl MemoryBudget {
             inner.allocated -= size;
         }
         inner.used += size;
+        GAUGE_MEMORY_ALLOCATED.set(inner.allocated);
+        GAUGE_MEMORY_USED.set(inner.used);
         Ok(true)
     }
 
@@ -409,6 +412,7 @@ impl MemoryBudget {
         } else {
             inner.used -= size;
         }
+        GAUGE_MEMORY_USED.set(inner.used);
         Ok(true)
     }
 
@@ -419,6 +423,7 @@ impl MemoryBudget {
         } else {
             inner.allocated -= size;
         }
+        GAUGE_MEMORY_ALLOCATED.set(inner.allocated);
         Ok(true)
     }
 }

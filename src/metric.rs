@@ -10,6 +10,7 @@ lazy_static! {
 
     pub static ref TOTAL_RECEIVED_DATA: IntCounter = IntCounter::new("total_received_data", "Incoming Requests").expect("metric should be created");
     pub static ref TOTAL_MEMORY_USED: IntCounter = IntCounter::new("total_memory_used", "Total memory used").expect("metric should be created");
+    pub static ref TOTAL_LOCALFILE_USED: IntCounter = IntCounter::new("total_localfile_used", "Total localfile used").expect("metric should be created");
 
     pub static ref GAUGE_MEMORY_USED: IntGauge = IntGauge::new("memory_used", "memory used").expect("metric should be created");
     pub static ref GAUGE_MEMORY_ALLOCATED: IntGauge = IntGauge::new("memory_allocated", "memory allocated").expect("metric should be created");
@@ -19,6 +20,7 @@ lazy_static! {
 fn register_custom_metrics() {
     REGISTRY.register(Box::new(TOTAL_RECEIVED_DATA.clone())).expect("total_received_data must be registered");
     REGISTRY.register(Box::new(TOTAL_MEMORY_USED.clone())).expect("total_memory_used must be registered");
+    REGISTRY.register(Box::new(TOTAL_LOCALFILE_USED.clone())).expect("total_localfile_used must be registered");
 
     REGISTRY.register(Box::new(GAUGE_MEMORY_USED.clone())).expect("memory_used must be registered");
     REGISTRY.register(Box::new(GAUGE_MEMORY_ALLOCATED.clone())).expect("memory_allocated must be registered");

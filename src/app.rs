@@ -16,6 +16,7 @@ use tokio::runtime::Runtime;
 use tonic::codegen::ok;
 use crate::config::Config;
 use crate::error::DatanodeError;
+use crate::metric::TOTAL_RECEIVED_DATA;
 use crate::proto::uniffle::ShuffleData;
 use crate::store;
 use crate::store::{PartitionedData, PartitionedDataBlock, ResponseData, ResponseDataIndex, Store, StoreProvider};
@@ -86,6 +87,9 @@ impl App {
     }
 
     pub async fn insert(&self, ctx: WritingViewContext) -> Result<()> {
+        let len: i32 = ctx.data_blocks.iter().map(|block| block.length).sum();
+        TOTAL_RECEIVED_DATA.inc_by(len as u64);
+
         self.store.insert(ctx).await
     }
 
