@@ -40,9 +40,8 @@ impl ConcurrencyLimit {
 
 #[cfg(test)]
 mod test {
-
+    
     #[test]
     fn drop_test() {
-
     }
 }

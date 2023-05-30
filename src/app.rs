@@ -9,9 +9,10 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use dashmap::DashMap;
 use anyhow::{Result, anyhow};
 use bytes::{BufMut, Bytes, BytesMut};
+use croaring::Treemap;
+use croaring::treemap::JvmSerializer;
 use dashmap::mapref::one::{Ref, RefMut};
 use log::info;
-use roaring::{RoaringTreemap, treemap};
 use tokio::runtime::Runtime;
 use tonic::codegen::ok;
 use crate::config::Config;
@@ -43,7 +44,7 @@ struct AppConfigOptions {
 pub struct App {
     app: Arc<AppInner>,
     store: Arc<HybridStore>,
-    bitmap_of_blocks: DashMap<i32, DashMap<i32, Arc<RwLock<RoaringTreemap>>>>
+    bitmap_of_blocks: DashMap<i32, DashMap<i32, Arc<RwLock<Treemap>>>>
 }
 
 impl App {
@@ -105,11 +106,11 @@ impl App {
         self.store.require_buffer(ctx).await
     }
 
-    fn get_underlying_partition_bitmap(&self, uid: PartitionedUId) -> Arc<RwLock<RoaringTreemap>> {
+    fn get_underlying_partition_bitmap(&self, uid: PartitionedUId) -> Arc<RwLock<Treemap>> {
         let shuffle_id = uid.shuffle_id;
         let partition_id = uid.partition_id;
         let shuffle_entry = self.bitmap_of_blocks.entry(shuffle_id).or_insert_with(||DashMap::new());
-        let mut partition_bitmap = shuffle_entry.entry(partition_id).or_insert_with(||Arc::new(RwLock::new(RoaringTreemap::new())));
+        let mut partition_bitmap = shuffle_entry.entry(partition_id).or_insert_with(||Arc::new(RwLock::new(Treemap::create())));
 
         partition_bitmap.clone()
     }
@@ -118,12 +119,9 @@ impl App {
         let mut partition_bitmap = self.get_underlying_partition_bitmap(ctx.uid);
         let partition_bitmap = partition_bitmap.read().unwrap();
 
-        let size = partition_bitmap.serialized_size();
-        let mut std_bytes = Vec::with_capacity(size);
-        partition_bitmap.serialize_into(&mut std_bytes).unwrap();
-
+        let serialized_data = partition_bitmap.serialize()?;
         Ok(
-            Bytes::from(std_bytes)
+            Bytes::from(serialized_data)
         )
     }
 
@@ -132,7 +130,7 @@ impl App {
         let mut partition_bitmap = partition_bitmap_wrapper.write().unwrap();
 
         for block_id in ctx.blocks {
-            partition_bitmap.insert(block_id as u64);
+            partition_bitmap.add(block_id as u64);
         }
 
         Ok(())
