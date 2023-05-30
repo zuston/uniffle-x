@@ -166,8 +166,10 @@ impl Store for LocalFileStore {
             }));
         }
 
-        let index_data_result = local_disk.unwrap().read(index_file_path, 0, None).await.unwrap();
-        let len = index_data_result.clone().len() as i64;
+        let local_disk = local_disk.unwrap();
+
+        let index_data_result = local_disk.read(index_file_path, 0, None).await?;
+        let len = local_disk.get_file_len(data_file_path).await?;
         Ok(ResponseDataIndex::local(LocalDataIndex {
             index_data: index_data_result,
             data_file_len: len
@@ -175,7 +177,7 @@ impl Store for LocalFileStore {
     }
 
     async fn require_buffer(&self, ctx: RequireBufferContext) -> Result<(bool, i64)> {
-        panic!("It should happen")
+        panic!("It should not happen")
     }
 
     async fn purge(&self, app_id: String) -> Result<()> {
@@ -234,6 +236,15 @@ impl LocalDisk {
         *val += data.len() as i64;
 
         Ok(())
+    }
+
+    async fn get_file_len(&self, relative_file_path: String) -> Result<i64> {
+        let file_path = self.append_path(relative_file_path);
+
+        let metadata = tokio::fs::metadata(file_path).await?;
+        Ok(
+            metadata.len() as i64
+        )
     }
 
     async fn read(&self, relative_file_path: String, offset: i64, length: Option<i64>) -> Result<Bytes> {
