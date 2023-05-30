@@ -61,7 +61,7 @@ impl HybridStore {
             spill_size += block.length as i64;
         }
 
-        let message = format!("partition uid: {:?}, memory spilled size: {}", ctx.uid.clone(), in_flight_blocks_id);
+        let message = format!("partition uid: {:?}, memory spilled size: {}", ctx.uid.clone(), spill_size);
 
         self.warm_store.insert(ctx).await?;
         self.hot_store.release_in_flight_blocks_in_underlying_staging_buffer(uid, in_flight_blocks_id).await?;
@@ -84,7 +84,7 @@ impl Store for HybridStore {
                 let store_cloned = store.clone();
                 tokio::spawn(async move {
                     match store_cloned.memory_spill_to_localfile(message.ctx, message.id).await {
-                        Ok(msg) => info!("{}", msg),
+                        Ok(msg) => debug!("{}", msg),
                         Err(error) => {
                             TOTAL_MEMORY_SPILL_OPERATION_FAILED.inc();
                             error!("Errors on spilling memory data to localfile. error: {:#?}", error)
