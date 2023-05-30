@@ -1,5 +1,5 @@
 use bytes::{BufMut, BytesMut};
-use log::{error, info};
+use log::{debug, error, info};
 use toml::Value::String;
 use tonic::{Request, Response, Status};
 use crate::app::{GetBlocksContext, PartitionedUId, ReadingIndexViewContext, ReadingOptions, ReadingViewContext, ReportBlocksContext, RequireBufferContext, WritingViewContext};
@@ -209,6 +209,7 @@ impl ShuffleServer for DefaultShuffleServer {
 
         for partition_to_block_id in partition_to_block_ids {
             let partition_id = partition_to_block_id.partition_id;
+            debug!("Reporting partition:{} {} blocks", partition_id, partition_to_block_id.block_ids.len());
             let ctx = ReportBlocksContext {
                 uid: PartitionedUId {
                     app_id: app_id.clone(),

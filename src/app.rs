@@ -12,7 +12,7 @@ use bytes::{BufMut, Bytes, BytesMut};
 use croaring::Treemap;
 use croaring::treemap::JvmSerializer;
 use dashmap::mapref::one::{Ref, RefMut};
-use log::info;
+use log::{debug, info};
 use tokio::runtime::Runtime;
 use tonic::codegen::ok;
 use crate::config::Config;
@@ -116,6 +116,7 @@ impl App {
     }
 
     pub async fn get_block_ids(&self, ctx: GetBlocksContext) -> Result<Bytes> {
+        debug!("get blocks: {:?}", ctx.clone());
         let mut partition_bitmap = self.get_underlying_partition_bitmap(ctx.uid);
         let partition_bitmap = partition_bitmap.read().unwrap();
 
@@ -126,6 +127,7 @@ impl App {
     }
 
     pub async fn report_block_ids(&self, ctx: ReportBlocksContext) -> Result<()> {
+        debug!("Report blocks: {:?}", ctx.clone());
         let mut partition_bitmap_wrapper = self.get_underlying_partition_bitmap(ctx.uid);
         let mut partition_bitmap = partition_bitmap_wrapper.write().unwrap();
 
@@ -141,11 +143,13 @@ impl App {
     }
 }
 
+#[derive(Debug, Clone)]
 pub struct ReportBlocksContext {
     pub(crate) uid: PartitionedUId,
     pub(crate) blocks: Vec<i64>
 }
 
+#[derive(Debug, Clone)]
 pub struct GetBlocksContext {
     pub(crate) uid: PartitionedUId,
 }
@@ -199,7 +203,7 @@ pub enum PurgeEvent {
 pub type AppManagerRef = Arc<AppManager>;
 
 pub struct AppManager {
-    apps: DashMap<String, App>,
+    apps: DashMap<String, Arc<App>>,
     receiver: crossbeam_channel::Receiver<PurgeEvent>,
     sender: crossbeam_channel::Sender<PurgeEvent>,
     store: Arc<HybridStore>
@@ -241,13 +245,13 @@ impl AppManager {
         app_ref
     }
 
-    pub(crate) fn get_app(&self, app_id: &str) -> Option<App> {
+    pub(crate) fn get_app(&self, app_id: &str) -> Option<Arc<App>> {
         self.apps.get(app_id).map(|v| v.value().clone())
     }
 
     pub fn register(&self, app_id: String, shuffle_id: i32) -> Result<()> {
         info!("Accepted registry. app_id: {}, shuffle_id: {}", app_id.clone(), shuffle_id);
-        let mut appRef = self.apps.entry(app_id.clone()).or_insert_with(|| App::from(app_id, None, self.store.clone()));
+        let mut appRef = self.apps.entry(app_id.clone()).or_insert_with(|| Arc::new(App::from(app_id, None, self.store.clone())));
         appRef.register_shuffle(shuffle_id)
     }
 
@@ -289,8 +293,10 @@ mod test {
     use std::sync::Arc;
     use std::thread::sleep;
     use std::time::{Duration, Instant};
+    use croaring::Treemap;
+    use croaring::treemap::JvmSerializer;
     use dashmap::DashMap;
-    use crate::app::{AppManager, PartitionedUId, ReadingOptions, ReadingViewContext, WritingViewContext};
+    use crate::app::{AppManager, GetBlocksContext, PartitionedUId, ReadingOptions, ReadingViewContext, ReportBlocksContext, WritingViewContext};
     use crate::Config;
     use crate::config::{HybridStoreConfig, LocalfileStoreConfig, MemoryStoreConfig};
     use crate::store::{PartitionedDataBlock, ResponseData};
@@ -433,6 +439,47 @@ mod test {
         } else {
             println!("Key not found");
         }
+    }
+
+    #[tokio::test]
+    async fn test_get_or_put_block_ids() {
+        let app_id = "test_get_or_put_block_ids-----id".to_string();
+
+        let appManagerRef = AppManager::get_ref(mock_config()).clone();
+        appManagerRef.register(app_id.clone().into(), 1).unwrap();
+
+        let app = appManagerRef.get_app(app_id.as_ref()).unwrap();
+        app.report_block_ids(ReportBlocksContext {
+            uid: PartitionedUId {
+                app_id: app_id.clone(),
+                shuffle_id: 1,
+                partition_id: 0
+            },
+            blocks: vec![
+                123,
+                124
+            ]
+        }).await.expect("TODO: panic message");
+
+        let data = app.get_block_ids(GetBlocksContext {
+            uid: PartitionedUId {
+                app_id,
+                shuffle_id: 1,
+                partition_id: 0
+            }
+        }).await.expect("TODO: panic message");
+
+        let deserialized = Treemap::deserialize(&data).unwrap();
+        assert_eq!(deserialized, Treemap::from_iter(vec![123, 124]));
+    }
+
+    #[test]
+    fn test_treemap() {
+        let mut map = Treemap::create();
+        map.add(123);
+
+        let data = map.serialize().unwrap();
+        let _ = std::fs::write("/tmp/block_ids".to_string(), data);
     }
 
     #[tokio::test]
