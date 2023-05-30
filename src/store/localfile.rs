@@ -89,7 +89,7 @@ impl Store for LocalFileStore {
         // write index file and data file
         // todo: split multiple pieces
         let mut bytes_holder = BytesMut::new();
-        let mut next_offset = local_disk.next_offset(&data_file_path);
+        let mut next_offset = local_disk.get_file_len(data_file_path.clone()).await?;
 
         let mut index_bytes_holder = BytesMut::new();
         for block in ctx.data_blocks {
@@ -187,7 +187,6 @@ impl Store for LocalFileStore {
 
 struct LocalDisk {
     base_path: String,
-    partition_file_len: DashMap<String, i64>,
     concurrency_limiter: Semaphore
 }
 
@@ -196,20 +195,12 @@ impl LocalDisk {
         create_directory_if_not_exists(&path);
         LocalDisk {
             base_path: path,
-            partition_file_len: DashMap::new(),
             concurrency_limiter: Semaphore::new(40)
         }
     }
 
     fn append_path(&self, path: String) -> String {
         format!("{}/{}", self.base_path.clone(), path)
-    }
-
-    fn next_offset(&self, data_file_name: &str) -> i64 {
-        match self.partition_file_len.get(data_file_name).map(|v|v.value().clone()) {
-            Some(offset) => offset,
-            _ => 0
-        }
     }
 
     async fn write(&self, data: Bytes, relative_file_path: String) -> Result<()> {
@@ -232,18 +223,17 @@ impl LocalDisk {
         output_file.write_all(data.as_ref()).await?;
         output_file.sync_data().await?;
 
-        let mut val = self.partition_file_len.entry(relative_file_path).or_insert(0);
-        *val += data.len() as i64;
-
         Ok(())
     }
 
     async fn get_file_len(&self, relative_file_path: String) -> Result<i64> {
         let file_path = self.append_path(relative_file_path);
 
-        let metadata = tokio::fs::metadata(file_path).await?;
         Ok(
-            metadata.len() as i64
+            match tokio::fs::metadata(file_path).await {
+                Ok(metadata) => metadata.len() as i64,
+                _ => 0i64
+            }
         )
     }
 
@@ -317,6 +307,7 @@ mod test {
 
         let insert_result = local_store.insert(writingCtx).await;
         if insert_result.is_err() {
+            println!("{:?}", insert_result.err());
             panic!()
         }
 
