@@ -12,11 +12,12 @@ use tokio::fs::OpenOptions;
 use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt};
 use crate::store::{LocalDataIndex, PartitionedLocalData, ResponseData, ResponseDataIndex, Store};
 use async_trait::async_trait;
-use log::{debug, info};
+use log::{debug, error, info};
 use tokio::sync::{RwLock, Semaphore};
 use tonic::codegen::ok;
 use crate::app::ReadingOptions::FILE_OFFSET_AND_LEN;
 use crate::config::LocalfileStoreConfig;
+use crate::util::get_crc;
 
 fn create_directory_if_not_exists(dir_path: &str) {
     if !std::fs::metadata(dir_path).is_ok() {
@@ -77,6 +78,10 @@ impl Store for LocalFileStore {
     }
 
     async fn insert(&self, ctx: WritingViewContext) -> Result<()> {
+        if ctx.data_blocks.len() <= 0 {
+            return Ok(());
+        }
+
         let uid = ctx.uid;
         let pid = uid.partition_id;
         let (data_file_path, index_file_path) = LocalFileStore::gen_relative_path(&uid);
@@ -111,17 +116,19 @@ impl Store for LocalFileStore {
             index_bytes_holder.put_i64(task_attempt_id);
 
             let data = block.data;
+            if get_crc(&data) != crc {
+                error!("The crc value is not the same. partition id: {}, block id: {}", pid, block_id);
+            }
+
             bytes_holder.extend_from_slice(&*data);
             next_offset += length as i64;
         }
 
         info!("flush partition: {}, batch_size: {}", pid, batch_size);
 
-        if batch_size > 0 {
-            // data file write
-            local_disk.write(bytes_holder.freeze(), data_file_path.clone()).await?;
-            local_disk.write(index_bytes_holder.freeze(), index_file_path).await?;
-        }
+        // data file write
+        local_disk.write(bytes_holder.freeze(), data_file_path.clone()).await?;
+        local_disk.write(index_bytes_holder.freeze(), index_file_path).await?;
 
         debug!("Finished data writing....");
 

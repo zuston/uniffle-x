@@ -315,6 +315,7 @@ impl Store for MemoryStore {
 /// thread safe, this will be guarded by the lock
 #[derive(Debug, Clone)]
 pub struct StagingBuffer {
+    // optimize this size.
     pub size: i64,
     pub staging: Vec<PartitionedDataBlock>,
     pub in_flight: BTreeMap<i64, Vec<PartitionedDataBlock>>,
