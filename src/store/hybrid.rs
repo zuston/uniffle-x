@@ -102,10 +102,12 @@ impl Store for HybridStore {
         debug!("used ratio: {}", used_ratio);
         if used_ratio > self.config.memory_spill_high_watermark {
             let target_size = (self.hot_store.memory_capacity as f32 * self.config.memory_spill_low_watermark) as i64;
+            println!("target size: {}", target_size);
             let buffers = self.hot_store.get_required_spill_buffer(target_size).await;
 
             for (partition_id, buffer) in buffers {
                 let mut buffer_inner = buffer.lock().await;
+                // todo: optimize this.
                 let blocks = buffer_inner.to_owned().staging;
                 let writingCtx = WritingViewContext {
                     uid: partition_id,

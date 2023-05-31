@@ -90,16 +90,17 @@ impl MemoryStore {
         }
 
         let removed_size = self.memory_capacity - target_len;
-        let current_remove = 0;
+        let mut current_removed = 0;
 
         let mut required_spill_buffers = HashMap::new();
 
         let iter = sorted_tree_map.iter().rev();
         'outer: for (size, vals) in iter {
             for (app_id, shuffle_id, partition_id) in vals {
-                if current_remove >= removed_size {
+                if current_removed >= removed_size || size.to_be() == 0 {
                     break 'outer;
                 }
+                current_removed += size.to_be() as i64;
                 required_spill_buffers.insert(
                     PartitionedUId::from(app_id.to_string(), shuffle_id.clone(), partition_id.clone()),
                     self.get_underlying_partition_buffer(app_id, shuffle_id, partition_id)

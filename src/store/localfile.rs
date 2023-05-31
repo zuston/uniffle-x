@@ -12,7 +12,7 @@ use tokio::fs::OpenOptions;
 use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt};
 use crate::store::{LocalDataIndex, PartitionedLocalData, ResponseData, ResponseDataIndex, Store};
 use async_trait::async_trait;
-use log::debug;
+use log::{debug, info};
 use tokio::sync::{RwLock, Semaphore};
 use tonic::codegen::ok;
 use crate::app::ReadingOptions::FILE_OFFSET_AND_LEN;
@@ -78,6 +78,7 @@ impl Store for LocalFileStore {
 
     async fn insert(&self, ctx: WritingViewContext) -> Result<()> {
         let uid = ctx.uid;
+        let pid = uid.partition_id;
         let (data_file_path, index_file_path) = LocalFileStore::gen_relative_path(&uid);
         let local_disk = self.partition_written_disk_map.entry(uid).or_insert_with(||{
             // todo: support hash selection or more pluggable selections
@@ -92,7 +93,9 @@ impl Store for LocalFileStore {
         let mut next_offset = local_disk.get_file_len(data_file_path.clone()).await?;
 
         let mut index_bytes_holder = BytesMut::new();
+        let mut batch_size = 0;
         for block in ctx.data_blocks {
+            batch_size += 1;
 
             let block_id = block.block_id;
             let length = block.length;
@@ -112,9 +115,13 @@ impl Store for LocalFileStore {
             next_offset += length as i64;
         }
 
-        // data file write
-        local_disk.write(bytes_holder.freeze(), data_file_path.clone()).await?;
-        local_disk.write(index_bytes_holder.freeze(), index_file_path).await?;
+        info!("flush partition: {}, batch_size: {}", pid, batch_size);
+
+        if batch_size > 0 {
+            // data file write
+            local_disk.write(bytes_holder.freeze(), data_file_path.clone()).await?;
+            local_disk.write(index_bytes_holder.freeze(), index_file_path).await?;
+        }
 
         debug!("Finished data writing....");
 
