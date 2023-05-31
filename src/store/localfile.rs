@@ -146,9 +146,9 @@ impl Store for LocalFileStore {
         }
 
         let local_disk = local_disk.unwrap();
-        let data = local_disk.read(data_file_path, offset, Some(len)).await;
+        let data = local_disk.read(data_file_path, offset, Some(len)).await?;
         Ok(ResponseData::local(PartitionedLocalData {
-            data: data.unwrap()
+            data
         }))
     }
 
@@ -221,7 +221,7 @@ impl LocalDisk {
 
         let mut output_file= OpenOptions::new().append(true).create(true).open(absolute_path).await?;
         output_file.write_all(data.as_ref()).await?;
-        output_file.sync_data().await?;
+        output_file.flush().await?;
 
         Ok(())
     }
