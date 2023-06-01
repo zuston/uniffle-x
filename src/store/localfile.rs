@@ -28,7 +28,7 @@ fn create_directory_if_not_exists(dir_path: &str) {
 pub struct LocalFileStore {
     local_disks: Vec<Arc<LocalDisk>>,
     partition_written_disk_map: DashMap<PartitionedUId, Arc<LocalDisk>>,
-    file_locks: DashMap<String, RwLock<()>>,
+    file_locks: DashMap<String, Arc<RwLock<()>>>,
 }
 
 unsafe impl Send for LocalFileStore {}
@@ -90,7 +90,8 @@ impl Store for LocalFileStore {
             self.local_disks.get(0).unwrap().clone()
         }).clone();
 
-        let _ = self.file_locks.entry(data_file_path.clone()).or_insert_with(|| RwLock::new(())).write().await;
+        let lock_cloned = self.file_locks.entry(data_file_path.clone()).or_insert_with(|| Arc::new(RwLock::new(()))).clone();
+        let lock_guard = lock_cloned.write().await;
 
         // write index file and data file
         // todo: split multiple pieces
@@ -115,16 +116,16 @@ impl Store for LocalFileStore {
             index_bytes_holder.put_i64(task_attempt_id);
 
             let data = block.data;
-            if get_crc(&data) != crc {
-                error!("The crc value is not the same. partition id: {}, block id: {}", pid, block_id);
-            }
+            // if get_crc(&data) != crc {
+            //     error!("The crc value is not the same. partition id: {}, block id: {}", pid, block_id);
+            // }
 
             local_disk.write(data, data_file_path.clone()).await?;
             local_disk.write(index_bytes_holder.freeze(), index_file_path.clone()).await?;
             next_offset += length as i64;
         }
 
-        info!("flush partition: {}, batch_size: {}", pid, batch_size);
+        debug!("flush partition: {}, batch_size: {}", pid, batch_size);
 
         Ok(())
     }
@@ -143,7 +144,8 @@ impl Store for LocalFileStore {
         }
 
         let (data_file_path, _) = LocalFileStore::gen_relative_path(&uid);
-        let _ = self.file_locks.entry(data_file_path.clone()).or_insert_with(|| RwLock::new(())).read().await;
+        let lock_cloned = self.file_locks.entry(data_file_path.clone()).or_insert_with(|| Arc::new(RwLock::new(()))).clone();
+        let lock_guard = lock_cloned.read().await;
 
         let local_disk: Option<Arc<LocalDisk>> = self.partition_written_disk_map.get(&uid).map(|v|v.value().clone());
 
@@ -163,7 +165,9 @@ impl Store for LocalFileStore {
     async fn get_index(&self, ctx: ReadingIndexViewContext) -> Result<ResponseDataIndex> {
         let uid = ctx.partition_id;
         let (data_file_path, index_file_path) = LocalFileStore::gen_relative_path(&uid);
-        let _ = self.file_locks.entry(data_file_path.clone()).or_insert_with(|| RwLock::new(())).read().await;
+
+        let lock_cloned = self.file_locks.entry(data_file_path.clone()).or_insert_with(|| Arc::new(RwLock::new(()))).clone();
+        let lock_guard = lock_cloned.read().await;
 
         let local_disk: Option<Arc<LocalDisk>> = self.partition_written_disk_map.get(&uid).map(|v|v.value().clone());
 
