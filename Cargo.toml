@@ -39,6 +39,7 @@ warp = "0.3.2"
 prometheus = { version = "0.13", features = ["process"] }
 lazy_static = "1.4"
 crc32fast = "1.3.2"
+fs2 = "0.4.3"
 
 [build-dependencies]
 tonic-build = "0.9.1"

@@ -199,7 +199,8 @@ impl Store for LocalFileStore {
 
 struct LocalDisk {
     base_path: String,
-    concurrency_limiter: Semaphore
+    concurrency_limiter: Semaphore,
+    is_corrupted: bool
 }
 
 impl LocalDisk {
@@ -207,7 +208,8 @@ impl LocalDisk {
         create_directory_if_not_exists(&path);
         LocalDisk {
             base_path: path,
-            concurrency_limiter: Semaphore::new(40)
+            concurrency_limiter: Semaphore::new(40),
+            is_corrupted: false
         }
     }
 
@@ -267,6 +269,28 @@ impl LocalDisk {
         let mut bytes_buffer = BytesMut::new();
         bytes_buffer.extend_from_slice(&*buffer);
         Ok(bytes_buffer.freeze())
+    }
+
+    async fn delete(&self, relative_file_path: String) -> Result<()> {
+        let delete_path = self.append_path(relative_file_path);
+        if tokio::fs::metadata(&delete_path).await?.is_dir() {
+            tokio::fs::remove_dir_all(delete_path).await?;
+        } else {
+            tokio::fs::remove_file(delete_path).await?;
+        }
+        Ok(())
+    }
+
+    fn is_corrupted(&self) -> Result<bool> {
+        // todo: add implementation to check the disk availability
+        Ok(self.is_corrupted)
+    }
+
+    fn get_disk_used_ratio(&self) -> Result<f64> {
+        // Get the total and available space in bytes
+        let available_space = fs2::available_space(&self.base_path)?;
+        let total_space = fs2::total_space(&self.base_path)?;
+        Ok(1.0 - (available_space as f64 / total_space as f64))
     }
 }
 
@@ -382,6 +406,24 @@ mod test {
         }
 
         temp_dir.close().unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_local_disk_delete_operation() {
+        let temp_dir = tempdir::TempDir::new("test_local_disk_delete_operation-dir").unwrap();
+        let temp_path = temp_dir.path().to_str().unwrap().to_string();
+
+        println!("init the path: {}", &temp_path);
+
+        let mut local_disk = LocalDisk::new(temp_path.clone());
+
+        let data = b"hello!";
+        local_disk.write(Bytes::copy_from_slice(data), "a/b".to_string()).await.unwrap();
+
+        assert_eq!(true, tokio::fs::try_exists(format!("{}/{}", &temp_path, "a/b".to_string())).await.unwrap());
+
+        local_disk.delete("a/".to_string()).await.expect("TODO: panic message");
+        assert_eq!(false, tokio::fs::try_exists(format!("{}/{}", &temp_path, "a/b".to_string())).await.unwrap());
     }
 
     #[tokio::test]
