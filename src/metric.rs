@@ -1,9 +1,12 @@
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use std::time::Duration;
 use lazy_static::lazy_static;
 use log::{error, info};
 
-use prometheus::{HistogramOpts, HistogramVec, IntCounter, IntCounterVec, IntGauge, Opts, Registry};
+use prometheus::{HistogramOpts, HistogramVec, IntCounter, IntCounterVec, IntGauge, labels, Opts, Registry};
+use tracing_subscriber::fmt::time;
 use warp::{Filter, Rejection, Reply};
+use crate::config::MetricsConfig;
 
 lazy_static! {
     pub static ref REGISTRY: Registry = Registry::new();
@@ -66,15 +69,55 @@ async fn metrics_handler() -> Result<impl Reply, Rejection> {
     Ok(res)
 }
 
-pub fn start_metric_service(metric_service_http_port: i32) {
+pub fn start_metric_service(metric_config: &Option<MetricsConfig>) {
+    if metric_config.is_none() {
+        return;
+    }
+
     register_custom_metrics();
+
+    let default_http_port = 19998;
+    let job_name = "uniffle-datanode";
+
+    let cfg = metric_config.clone().unwrap();
+
     let metrics_route = warp::path!("metrics").and_then(metrics_handler);
 
-    info!("Starting metric service with port:[{}] ......", metric_service_http_port);
+    let http_port = cfg.http_port.unwrap_or(default_http_port).clone();
+    info!("Starting metric service with port:[{}] ......", http_port);
+
+    let push_gateway_endpoint = cfg.push_gateway_endpoint;
+
+    if let Some(ref endpoint) = push_gateway_endpoint {
+        let push_interval_sec = cfg.push_interval_sec.unwrap_or(60);
+        tokio::spawn(async move {
+            info!("Starting prometheus metrics exporter...");
+            loop {
+                tokio::time::sleep(Duration::from_secs(push_interval_sec as u64)).await;
+
+                let general_metrics = prometheus::gather();
+                let custom_metrics = REGISTRY.gather();
+                let mut metrics = vec![];
+                metrics.extend_from_slice(&custom_metrics);
+                metrics.extend_from_slice(&general_metrics);
+
+                let pushed_result = prometheus::push_metrics(
+                    job_name,
+                    labels! {"instance".to_owned() => "HAL-9000".to_owned(),},
+                    &push_gateway_endpoint.to_owned().unwrap().to_owned(),
+                    metrics,
+                    None
+                );
+                if pushed_result.is_err() {
+                    error!("Errors on pushing metrics. {:?}", pushed_result.err());
+                }
+            }
+        });
+    }
 
     tokio::spawn(async move {
         warp::serve(metrics_route)
-            .run(SocketAddr::new(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)), metric_service_http_port as u16))
+            .run(SocketAddr::new(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)), http_port as u16))
             .await;
     });
 }

@@ -17,7 +17,7 @@ use tracing_appender::non_blocking::WorkerGuard;
 use tracing_subscriber::{EnvFilter, fmt, Registry};
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
-use crate::config::{Config, LogConfig, RotationConfig};
+use crate::config::{Config, LogConfig, MetricsConfig, RotationConfig};
 use crate::metric::start_metric_service;
 use crate::proto::uniffle::coordinator_server_client::CoordinatorServerClient;
 use crate::proto::uniffle::{ShuffleServerHeartBeatRequest, ShuffleServerId, StatusCode};
@@ -127,8 +127,7 @@ async fn main() -> Result<()> {
     let _guard = init_log(log_config);
 
     // start metric service to expose http api
-    let metric_http_port = config.metric_http_port.unwrap_or(19998);
-    start_metric_service(metric_http_port);
+    start_metric_service(&config.metrics);
 
     let rpc_port = config.grpc_port.unwrap_or(19999);
     let coordinator_quorum = config.coordinator_quorum.clone();

@@ -42,14 +42,23 @@ pub struct Config {
 
     pub store_type: Option<StorageType>,
 
+    pub metrics: Option<MetricsConfig>,
+
     pub grpc_port: Option<i32>,
-    pub metric_http_port: Option<i32>,
     pub coordinator_quorum: Vec<String>,
     pub tags: Option<Vec<String>>,
 
     pub log: Option<LogConfig>,
 
     pub app_heartbeat_timeout_min: Option<u32>
+}
+
+// =========================================================
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub struct MetricsConfig {
+    pub http_port: Option<u32>,
+    pub push_gateway_endpoint: Option<String>,
+    pub push_interval_sec: Option<u32>
 }
 
 // =========================================================
