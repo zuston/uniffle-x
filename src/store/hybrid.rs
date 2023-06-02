@@ -99,10 +99,8 @@ impl Store for HybridStore {
         let insert_result = self.hot_store.insert(ctx).await;
         let spill_lock = self.memory_spill_lock.lock().await;
         let used_ratio = self.hot_store.memory_usage_ratio().await;
-        debug!("used ratio: {}", used_ratio);
         if used_ratio > self.config.memory_spill_high_watermark {
             let target_size = (self.hot_store.memory_capacity as f32 * self.config.memory_spill_low_watermark) as i64;
-            println!("target size: {}", target_size);
             let buffers = self.hot_store.get_required_spill_buffer(target_size).await;
 
             for (partition_id, buffer) in buffers {
