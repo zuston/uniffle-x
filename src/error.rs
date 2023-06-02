@@ -1,5 +1,6 @@
 use std::fmt::{Display, Formatter, Write};
 use crossbeam_channel::SendError;
+use log::error;
 use thiserror::Error;
 use crate::app::PurgeEvent;
 
@@ -9,7 +10,13 @@ pub enum DatanodeError {
     PURGE_EVENT_SEND_ERROR(#[from] SendError<PurgeEvent>),
 
     #[error("Failed to flush memory data to file")]
-    DATA_WRITE_ERROR()
+    DATA_WRITE_ERROR(),
+
+    #[error("There is no available disks in local file store")]
+    NO_AVAILABLE_LOCAL_DISK,
+
+    #[error("Internal error, it should not happen")]
+    INTERNAL_ERROR
 }
 
 #[cfg(test)]

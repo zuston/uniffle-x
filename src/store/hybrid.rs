@@ -175,9 +175,9 @@ mod tests {
         config.memory_store=Some(MemoryStoreConfig {
             capacity: (data_len * 1) as i64
         });
-        config.localfile_store = Some(LocalfileStoreConfig {
-            data_paths: vec![temp_path]
-        });
+        config.localfile_store = Some(LocalfileStoreConfig::new(
+            vec![temp_path]
+        ));
         config.hybrid_store = Some(HybridStoreConfig {
             memory_spill_high_watermark: 0.8,
             memory_spill_low_watermark: 0.2

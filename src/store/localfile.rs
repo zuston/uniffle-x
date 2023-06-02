@@ -1,6 +1,7 @@
 use std::borrow::Borrow;
 use std::cell::Ref;
 use std::collections::HashMap;
+use std::hash::Hash;
 use std::io::SeekFrom;
 use std::path::Path;
 use std::sync::{Arc};
@@ -15,8 +16,10 @@ use async_trait::async_trait;
 use log::{debug, error, info};
 use tokio::sync::{RwLock, Semaphore};
 use tonic::codegen::ok;
+use tracing_subscriber::registry::Data;
 use crate::app::ReadingOptions::FILE_OFFSET_AND_LEN;
 use crate::config::LocalfileStoreConfig;
+use crate::error::DatanodeError;
 use crate::util::get_crc;
 
 fn create_directory_if_not_exists(dir_path: &str) {
@@ -29,6 +32,7 @@ pub struct LocalFileStore {
     local_disks: Vec<Arc<LocalDisk>>,
     partition_written_disk_map: DashMap<PartitionedUId, Arc<LocalDisk>>,
     file_locks: DashMap<String, Arc<RwLock<()>>>,
+    local_disk_config_options: LocalDiskConfig,
 }
 
 unsafe impl Send for LocalFileStore {}
@@ -45,7 +49,8 @@ impl LocalFileStore {
         LocalFileStore {
             local_disks: local_disk_instances,
             partition_written_disk_map: DashMap::new(),
-            file_locks: DashMap::new()
+            file_locks: DashMap::new(),
+            local_disk_config_options: Default::default()
         }
     }
 
@@ -59,7 +64,11 @@ impl LocalFileStore {
         LocalFileStore {
             local_disks: local_disk_instances,
             partition_written_disk_map: DashMap::new(),
-            file_locks: DashMap::new()
+            file_locks: DashMap::new(),
+            local_disk_config_options: LocalDiskConfig {
+                high_watermark: localfile_config.disk_high_watermark.unwrap_or(0.8),
+                low_watermark: localfile_config.disk_low_watermark.unwrap_or(0.6)
+            }
         }
     }
 
@@ -68,6 +77,38 @@ impl LocalFileStore {
             format!("{}/{}/partition-{}.data", uid.app_id, uid.shuffle_id, uid.partition_id),
             format!("{}/{}/partition-{}.index", uid.app_id, uid.shuffle_id, uid.partition_id)
         )
+    }
+
+    async fn get_or_create_owned_disk(&self, uid: PartitionedUId) -> Result<Arc<LocalDisk>> {
+        let local_disk = self.partition_written_disk_map.entry(uid.clone()).or_insert({
+            self.select_disk(&uid).await?
+        }).clone();
+
+        Ok(local_disk)
+    }
+
+    async fn select_disk(&self, uid: &PartitionedUId) -> Result<Arc<LocalDisk>, DatanodeError> {
+        let hash_value = PartitionedUId::get_hash(uid);
+
+        let mut candidates = vec![];
+        for local_disk in &self.local_disks {
+            if !local_disk.is_corrupted {
+                candidates.push(local_disk);
+            }
+        }
+
+        let len = candidates.len();
+        if len == 0 {
+            error!("There is no available local disk!");
+            return Err(DatanodeError::NO_AVAILABLE_LOCAL_DISK);
+        }
+
+        let index = (hash_value % len as u64) as usize;
+        if let Some(&disk) = candidates.get(index) {
+            Ok(disk.clone())
+        } else {
+            Err(DatanodeError::INTERNAL_ERROR)
+        }
     }
 }
 
@@ -85,10 +126,7 @@ impl Store for LocalFileStore {
         let uid = ctx.uid;
         let pid = uid.partition_id;
         let (data_file_path, index_file_path) = LocalFileStore::gen_relative_path(&uid);
-        let local_disk = self.partition_written_disk_map.entry(uid).or_insert_with(||{
-            // todo: support hash selection or more pluggable selections
-            self.local_disks.get(0).unwrap().clone()
-        }).clone();
+        let local_disk = self.get_or_create_owned_disk(uid.clone()).await?;
 
         let lock_cloned = self.file_locks.entry(data_file_path.clone()).or_insert_with(|| Arc::new(RwLock::new(()))).clone();
         let lock_guard = lock_cloned.write().await;
@@ -195,6 +233,12 @@ impl Store for LocalFileStore {
     async fn purge(&self, app_id: String) -> Result<()> {
         todo!()
     }
+}
+
+#[derive(Default)]
+struct LocalDiskConfig {
+    high_watermark: f32,
+    low_watermark: f32
 }
 
 struct LocalDisk {

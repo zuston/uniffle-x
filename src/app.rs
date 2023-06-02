@@ -1,5 +1,7 @@
 use std::borrow::BorrowMut;
+use std::collections::hash_map::DefaultHasher;
 use std::fs::read;
+use std::hash::{Hash, Hasher};
 use std::io::Read;
 use std::ops::Deref;
 use std::sync::{Arc, mpsc, Mutex, RwLock};
@@ -277,12 +279,21 @@ pub struct PartitionedUId {
 }
 
 impl PartitionedUId {
-    pub(crate) fn from(app_id: String, shuffle_id: i32, partition_id: i32) -> PartitionedUId {
+    pub fn from(app_id: String, shuffle_id: i32, partition_id: i32) -> PartitionedUId {
         PartitionedUId {
             app_id,
             shuffle_id,
             partition_id
         }
+    }
+
+    pub fn get_hash(uid: &PartitionedUId) -> u64 {
+        let mut hasher = DefaultHasher::new();
+
+        uid.hash(&mut hasher);
+        let hash_value = hasher.finish();
+
+        hash_value
     }
 }
 
@@ -302,6 +313,13 @@ mod test {
     use crate::store::{PartitionedDataBlock, ResponseData};
     use crate::store::hybrid::HybridStore;
 
+    #[test]
+    fn test_uid_hash() {
+        let uid = PartitionedUId::from("a".to_string(), 1, 1);
+        let hash_value = PartitionedUId::get_hash(&uid);
+        println!("{}", hash_value);
+    }
+
     fn mock_config() -> Config {
         let temp_dir = tempdir::TempDir::new("test_local_store").unwrap();
         let temp_path = temp_dir.path().to_str().unwrap().to_string();
@@ -311,9 +329,7 @@ mod test {
         config.memory_store=Some(MemoryStoreConfig {
             capacity: 1024 * 1024
         });
-        config.localfile_store = Some(LocalfileStoreConfig {
-            data_paths: vec![temp_path]
-        });
+        config.localfile_store = Some(LocalfileStoreConfig::new(vec![temp_path]));
         config.hybrid_store = Some(HybridStoreConfig {
             memory_spill_high_watermark: 0.8,
             memory_spill_low_watermark: 0.7

@@ -9,7 +9,19 @@ pub struct MemoryStoreConfig {
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct LocalfileStoreConfig {
-    pub data_paths: Vec<String>
+    pub data_paths: Vec<String>,
+    pub disk_high_watermark: Option<f32>,
+    pub disk_low_watermark: Option<f32>
+}
+
+impl LocalfileStoreConfig {
+    pub fn new(data_paths: Vec<String>) -> Self {
+        LocalfileStoreConfig {
+            data_paths,
+            disk_high_watermark: None,
+            disk_low_watermark: None
+        }
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
