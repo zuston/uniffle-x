@@ -37,7 +37,8 @@ async fn schedule_coordinator_report(
     app_manager: AppManagerRef,
     coordinator_quorum: Vec<String>,
     grpc_port: i32,
-    tags: Vec<String>) -> anyhow::Result<()> {
+    tags: Vec<String>,
+    datanode_uid: String) -> anyhow::Result<()> {
 
     tokio::spawn(async move {
 
@@ -46,7 +47,7 @@ async fn schedule_coordinator_report(
         info!("machine ip: {}", ip.clone());
 
         let shuffle_server_id = ShuffleServerId {
-            id: format!("{}-{}", ip.clone(), grpc_port),
+            id: datanode_uid,
             ip,
             port: grpc_port,
             netty_port: 0
@@ -118,6 +119,11 @@ fn init_log(log: &LogConfig) -> WorkerGuard {
     _guard
 }
 
+fn gen_datanode_uid(grpc_port: i32) -> String {
+    let ip = get_local_ip().unwrap().to_string();
+    format!("{}-{}", ip.clone(), grpc_port)
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     let config = Config::create_from_env();
@@ -126,10 +132,12 @@ async fn main() -> Result<()> {
     let log_config = &config.log.clone().unwrap_or(Default::default());
     let _guard = init_log(log_config);
 
-    // start metric service to expose http api
-    start_metric_service(&config.metrics);
-
     let rpc_port = config.grpc_port.unwrap_or(19999);
+    let datanode_uid = gen_datanode_uid(rpc_port);
+
+    // start metric service to expose http api
+    start_metric_service(&config.metrics, datanode_uid.clone());
+
     let coordinator_quorum = config.coordinator_quorum.clone();
     let tags = config.tags.clone().unwrap_or(vec![]);
     let app_manager_ref = AppManager::get_ref(config);
@@ -137,7 +145,8 @@ async fn main() -> Result<()> {
         app_manager_ref.clone(),
         coordinator_quorum,
         rpc_port,
-        tags).await;
+        tags,
+        datanode_uid).await;
 
     info!("Starting GRpc server with port:[{}] ......", rpc_port);
     let shuffle_server = DefaultShuffleServer::from(app_manager_ref);

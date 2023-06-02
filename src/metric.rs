@@ -69,7 +69,7 @@ async fn metrics_handler() -> Result<impl Reply, Rejection> {
     Ok(res)
 }
 
-pub fn start_metric_service(metric_config: &Option<MetricsConfig>) {
+pub fn start_metric_service(metric_config: &Option<MetricsConfig>, datanode_uid: String) {
     if metric_config.is_none() {
         return;
     }
@@ -103,7 +103,7 @@ pub fn start_metric_service(metric_config: &Option<MetricsConfig>) {
 
                 let pushed_result = prometheus::push_metrics(
                     job_name,
-                    labels! {"instance".to_owned() => "HAL-9000".to_owned(),},
+                    labels! {"datanode_id".to_owned() => datanode_uid.to_owned(),},
                     &push_gateway_endpoint.to_owned().unwrap().to_owned(),
                     metrics,
                     None
