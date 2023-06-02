@@ -144,6 +144,8 @@ impl Store for HybridStore {
     }
 
     async fn purge(&self, app_id: String) -> Result<()> {
+        self.hot_store.purge(app_id.clone()).await?;
+        self.warm_store.purge(app_id).await?;
         Ok(())
     }
 }

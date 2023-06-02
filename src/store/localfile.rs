@@ -17,9 +17,11 @@ use log::{debug, error, info};
 use tokio::sync::{RwLock, Semaphore};
 use tonic::codegen::ok;
 use tracing_subscriber::registry::Data;
+use warp::delete;
 use crate::app::ReadingOptions::FILE_OFFSET_AND_LEN;
 use crate::config::LocalfileStoreConfig;
 use crate::error::DatanodeError;
+use crate::store::ResponseDataIndex::local;
 use crate::util::get_crc;
 
 fn create_directory_if_not_exists(dir_path: &str) {
@@ -30,8 +32,8 @@ fn create_directory_if_not_exists(dir_path: &str) {
 
 pub struct LocalFileStore {
     local_disks: Vec<Arc<LocalDisk>>,
-    partition_written_disk_map: DashMap<PartitionedUId, Arc<LocalDisk>>,
-    file_locks: DashMap<String, Arc<RwLock<()>>>,
+    partition_written_disk_map: DashMap<String, DashMap<i32, DashMap<i32, Arc<LocalDisk>>>>,
+    partition_file_locks: DashMap<String, Arc<RwLock<()>>>,
     local_disk_config_options: LocalDiskConfig,
 }
 
@@ -49,7 +51,7 @@ impl LocalFileStore {
         LocalFileStore {
             local_disks: local_disk_instances,
             partition_written_disk_map: DashMap::new(),
-            file_locks: DashMap::new(),
+            partition_file_locks: DashMap::new(),
             local_disk_config_options: Default::default()
         }
     }
@@ -64,7 +66,7 @@ impl LocalFileStore {
         LocalFileStore {
             local_disks: local_disk_instances,
             partition_written_disk_map: DashMap::new(),
-            file_locks: DashMap::new(),
+            partition_file_locks: DashMap::new(),
             local_disk_config_options: LocalDiskConfig {
                 high_watermark: localfile_config.disk_high_watermark.unwrap_or(0.8),
                 low_watermark: localfile_config.disk_low_watermark.unwrap_or(0.6)
@@ -72,16 +74,62 @@ impl LocalFileStore {
         }
     }
 
-    fn gen_relative_path(uid: &PartitionedUId) -> (String, String) {
+    fn gen_relative_path_for_app(app_id: &str) -> String {
+        format!("{}", app_id)
+    }
+
+    fn gen_relative_path_for_partition(uid: &PartitionedUId) -> (String, String) {
         (
             format!("{}/{}/partition-{}.data", uid.app_id, uid.shuffle_id, uid.partition_id),
             format!("{}/{}/partition-{}.index", uid.app_id, uid.shuffle_id, uid.partition_id)
         )
     }
 
+    fn get_app_all_partitions(&self, app_id: &str) -> Vec<(i32, i32)> {
+        let stage_entry = self.partition_written_disk_map.get(app_id);
+        if stage_entry.is_none() {
+            return vec![];
+        }
+
+        let stages = stage_entry.unwrap();
+        let mut partition_ids = vec![];
+        for stage_item in stages.iter() {
+            let (shuffle_id, partitions) = stage_item.pair();
+            for partition_item in partitions.iter() {
+                let (partition_id, _) = partition_item.pair();
+                partition_ids.push((*shuffle_id, *partition_id));
+            }
+        }
+
+        partition_ids
+    }
+
+    fn delete_app(&self, app_id: &str) -> Result<()> {
+        self.partition_written_disk_map.remove(app_id);
+        Ok(())
+    }
+
+    fn get_owned_disk(&self, uid: PartitionedUId) -> Option<Arc<LocalDisk>> {
+        let app_id = uid.app_id;
+        let shuffle_id = uid.shuffle_id;
+        let partition_id = uid.partition_id;
+
+        let shuffle_entry = self.partition_written_disk_map.entry(app_id).or_insert_with(||DashMap::new());
+        let partition_entry = shuffle_entry.entry(shuffle_id).or_insert_with(||DashMap::new());
+
+        partition_entry.get(&partition_id).map(|v|v.value().clone())
+    }
+
     async fn get_or_create_owned_disk(&self, uid: PartitionedUId) -> Result<Arc<LocalDisk>> {
-        let local_disk = self.partition_written_disk_map.entry(uid.clone()).or_insert({
-            self.select_disk(&uid).await?
+        let uid_ref = &uid.clone();
+        let app_id = uid.app_id;
+        let shuffle_id = uid.shuffle_id;
+        let partition_id = uid.partition_id;
+
+        let shuffle_entry = self.partition_written_disk_map.entry(app_id).or_insert_with(||DashMap::new());
+        let partition_entry = shuffle_entry.entry(shuffle_id).or_insert_with(||DashMap::new());
+        let local_disk= partition_entry.entry(partition_id).or_insert({
+            self.select_disk(uid_ref).await?
         }).clone();
 
         Ok(local_disk)
@@ -125,10 +173,10 @@ impl Store for LocalFileStore {
 
         let uid = ctx.uid;
         let pid = uid.partition_id;
-        let (data_file_path, index_file_path) = LocalFileStore::gen_relative_path(&uid);
+        let (data_file_path, index_file_path) = LocalFileStore::gen_relative_path_for_partition(&uid);
         let local_disk = self.get_or_create_owned_disk(uid.clone()).await?;
 
-        let lock_cloned = self.file_locks.entry(data_file_path.clone()).or_insert_with(|| Arc::new(RwLock::new(()))).clone();
+        let lock_cloned = self.partition_file_locks.entry(data_file_path.clone()).or_insert_with(|| Arc::new(RwLock::new(()))).clone();
         let lock_guard = lock_cloned.write().await;
 
         // write index file and data file
@@ -181,11 +229,11 @@ impl Store for LocalFileStore {
             }))
         }
 
-        let (data_file_path, _) = LocalFileStore::gen_relative_path(&uid);
-        let lock_cloned = self.file_locks.entry(data_file_path.clone()).or_insert_with(|| Arc::new(RwLock::new(()))).clone();
+        let (data_file_path, _) = LocalFileStore::gen_relative_path_for_partition(&uid);
+        let lock_cloned = self.partition_file_locks.entry(data_file_path.clone()).or_insert_with(|| Arc::new(RwLock::new(()))).clone();
         let lock_guard = lock_cloned.read().await;
 
-        let local_disk: Option<Arc<LocalDisk>> = self.partition_written_disk_map.get(&uid).map(|v|v.value().clone());
+        let local_disk: Option<Arc<LocalDisk>> = self.get_owned_disk(uid.clone());
 
         if local_disk.is_none() {
             return Ok(ResponseData::local(PartitionedLocalData {
@@ -202,12 +250,12 @@ impl Store for LocalFileStore {
 
     async fn get_index(&self, ctx: ReadingIndexViewContext) -> Result<ResponseDataIndex> {
         let uid = ctx.partition_id;
-        let (data_file_path, index_file_path) = LocalFileStore::gen_relative_path(&uid);
+        let (data_file_path, index_file_path) = LocalFileStore::gen_relative_path_for_partition(&uid);
 
-        let lock_cloned = self.file_locks.entry(data_file_path.clone()).or_insert_with(|| Arc::new(RwLock::new(()))).clone();
+        let lock_cloned = self.partition_file_locks.entry(data_file_path.clone()).or_insert_with(|| Arc::new(RwLock::new(()))).clone();
         let lock_guard = lock_cloned.read().await;
 
-        let local_disk: Option<Arc<LocalDisk>> = self.partition_written_disk_map.get(&uid).map(|v|v.value().clone());
+        let local_disk: Option<Arc<LocalDisk>> = self.get_owned_disk(uid.clone());
 
         if local_disk.is_none() {
             return Ok(ResponseDataIndex::local(LocalDataIndex {
@@ -231,7 +279,36 @@ impl Store for LocalFileStore {
     }
 
     async fn purge(&self, app_id: String) -> Result<()> {
-        todo!()
+        let app_relative_dir_path = LocalFileStore::gen_relative_path_for_app(&app_id);
+
+        let all_partition_ids = self.get_app_all_partitions(&app_id);
+        if all_partition_ids.is_empty() {
+            return Ok(());
+        }
+
+        // delete app dir
+        let (shuffle_id, partition_id) = all_partition_ids.get(0).unwrap();
+        let local_disk_option = self.get_owned_disk(PartitionedUId::from(app_id.clone(), *shuffle_id, *partition_id));
+        if local_disk_option.is_some() {
+            let local_disk = local_disk_option.unwrap();
+            local_disk.delete(app_relative_dir_path).await?;
+        }
+
+        // delete lock
+        for (shuffle_id, partition_id) in all_partition_ids {
+            let uid = PartitionedUId {
+                app_id: app_id.clone(),
+                shuffle_id,
+                partition_id
+            };
+            let (data_file_path, _) = LocalFileStore::gen_relative_path_for_partition(&uid);
+            self.partition_file_locks.remove(&data_file_path);
+        }
+
+        // delete disk mapping
+        self.delete_app(&app_id)?;
+
+        Ok(())
     }
 }
 

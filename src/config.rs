@@ -7,6 +7,8 @@ pub struct MemoryStoreConfig {
     pub capacity: i64
 }
 
+// =========================================================
+
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct LocalfileStoreConfig {
     pub data_paths: Vec<String>,
@@ -23,6 +25,8 @@ impl LocalfileStoreConfig {
         }
     }
 }
+
+// =========================================================
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct HybridStoreConfig {
@@ -43,8 +47,12 @@ pub struct Config {
     pub coordinator_quorum: Vec<String>,
     pub tags: Option<Vec<String>>,
 
-    pub log: Option<LogConfig>
+    pub log: Option<LogConfig>,
+
+    pub app_heartbeat_timeout_min: Option<u32>
 }
+
+// =========================================================
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct LogConfig {
@@ -67,6 +75,8 @@ pub enum RotationConfig {
     Daily,
     Never,
 }
+
+// =========================================================
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub enum StorageType {

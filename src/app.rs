@@ -14,7 +14,7 @@ use bytes::{BufMut, Bytes, BytesMut};
 use croaring::Treemap;
 use croaring::treemap::JvmSerializer;
 use dashmap::mapref::one::{Ref, RefMut};
-use log::{debug, info};
+use log::{debug, error, info};
 use tokio::runtime::Runtime;
 use tonic::codegen::ok;
 use crate::config::Config;
@@ -25,6 +25,7 @@ use crate::store;
 use crate::store::{PartitionedData, PartitionedDataBlock, ResponseData, ResponseDataIndex, Store, StoreProvider};
 use crate::store::hybrid::HybridStore;
 use crate::store::memory::MemoryStore;
+use crate::util::current_timestamp_sec;
 
 #[derive(Debug, Clone)]
 enum DataDistribution {
@@ -57,7 +58,7 @@ impl App {
                     app_id,
                     partitions: DashMap::new(),
                     app_config_options: config_options,
-                    latest_heartbeat_time: AtomicU64::new(App::current_timestamp())
+                    latest_heartbeat_time: AtomicU64::new(current_timestamp_sec())
                 },
             ),
             store,
@@ -65,21 +66,12 @@ impl App {
         }
     }
 
-    fn current_timestamp() -> u64 {
-        let current_time = SystemTime::now();
-        let timestamp = current_time
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_secs();
-        timestamp
-    }
-
     fn get_latest_heartbeat_time(&self) -> u64 {
         self.app.latest_heartbeat_time.load(Ordering::SeqCst)
     }
 
     pub fn heartbeat(&self) -> Result<()> {
-        let timestamp = App::current_timestamp();
+        let timestamp = current_timestamp_sec();
         self.app.latest_heartbeat_time.swap(timestamp, Ordering::SeqCst);
         Ok(())
     }
@@ -141,6 +133,12 @@ impl App {
     }
 
     pub async fn purge(&self, app_id: String, shuffle_id: Option<i32>) -> Result<()> {
+        if shuffle_id.is_some() {
+            error!("Partial purge is not supported.");
+        } else {
+            self.store.purge(app_id).await?;
+        }
+
         Ok(())
     }
 }
@@ -205,49 +203,99 @@ pub enum PurgeEvent {
 pub type AppManagerRef = Arc<AppManager>;
 
 pub struct AppManager {
+    // key: app_id
     apps: DashMap<String, Arc<App>>,
-    receiver: crossbeam_channel::Receiver<PurgeEvent>,
-    sender: crossbeam_channel::Sender<PurgeEvent>,
-    store: Arc<HybridStore>
+    receiver: async_channel::Receiver<PurgeEvent>,
+    sender: async_channel::Sender<PurgeEvent>,
+    store: Arc<HybridStore>,
+    app_heartbeat_timeout_min: u32
 }
 
 impl AppManager {
     fn new(config: Config) -> Self {
-        let (sender, receiver) = crossbeam_channel::unbounded();
+        let (sender, receiver) = async_channel::unbounded();
+        let app_heartbeat_timeout_min = config.app_heartbeat_timeout_min.unwrap_or(10);
         let store = Arc::new(StoreProvider::get(config));
         store.clone().start();
         let manager = AppManager {
             apps: DashMap::new(),
             receiver,
             sender,
-            store
+            store,
+            app_heartbeat_timeout_min
         };
         manager
     }
 }
 
 impl AppManager {
-    pub(crate) fn get_ref(config: Config) -> AppManagerRef {
+    pub fn get_ref(config: Config) -> AppManagerRef {
         let app_ref = Arc::new(AppManager::new(config));
-
         let app_manager_ref_cloned = app_ref.clone();
 
         tokio::spawn(async move {
-            // todo: accept the purge event to clear the unused data.
-            // todo: purge the app if it's timeout
+            info!("Starting app heartbeat checker...");
             loop {
+                // task1: find out heartbeat timeout apps
                 tokio::time::sleep(Duration::from_secs(1)).await;
 
+                let current_timestamp = current_timestamp_sec();
                 for item in app_manager_ref_cloned.apps.iter() {
                     let (key, app) = item.pair();
                     let last_time = app.get_latest_heartbeat_time();
+
+                    if current_timestamp_sec() - last_time > (app_manager_ref_cloned.app_heartbeat_timeout_min * 60) as u64 {
+                        if app_manager_ref_cloned.sender.send(PurgeEvent::HEART_BEAT_TIMEOUT(key.clone())).await.is_err() {
+                            error!("Errors on sending purge event when app: {} heartbeat timeout", key);
+                        }
+                    }
                 }
             }
         });
+
+        let app_manager_cloned = app_ref.clone();
+        tokio::spawn(async move {
+            info!("Starting purge event handler...");
+            while let Ok(event) = app_manager_cloned.receiver.recv().await {
+                let purge_result = match event {
+                    PurgeEvent::HEART_BEAT_TIMEOUT(app_id) => {
+                        info!("The app:{} data of heartbeat timeout will be purged.", &app_id);
+                        app_manager_cloned.purge_app_data(app_id).await
+                    },
+                    PurgeEvent::APP_PURGE(app_id) => {
+                        info!("The app:{} has been finished, its data will be purged.", &app_id);
+                        app_manager_cloned.purge_app_data(app_id).await
+                    },
+                    PurgeEvent::APP_PARTIAL_SHUFFLES_PURGE(app_id, shuffle_ids) => {
+                        info!("Partial data purge is not supported currently");
+                        Ok(())
+                    }
+                };
+
+                if purge_result.is_err() {
+                    error!("Errors on purging data..");
+                }
+            }
+        });
+
         app_ref
     }
 
-    pub(crate) fn get_app(&self, app_id: &str) -> Option<Arc<App>> {
+    async fn purge_app_data(&self, app_id: String) -> Result<()> {
+        let app = self.get_app(&app_id);
+        if app.is_none() {
+            error!("App:{} don't exist when purging data, this should not happen", &app_id);
+        } else {
+            let app = app.unwrap();
+            app.purge(app_id.clone(), None).await?;
+        }
+
+        self.apps.remove(&app_id);
+
+        Ok(())
+    }
+
+    pub fn get_app(&self, app_id: &str) -> Option<Arc<App>> {
         self.apps.get(app_id).map(|v| v.value().clone())
     }
 
@@ -257,17 +305,14 @@ impl AppManager {
         appRef.register_shuffle(shuffle_id)
     }
 
-    pub fn unregister(&self, app_id: String, shuffle_ids: Option<Vec<i32>>) -> Result<(), DatanodeError> {
-        match shuffle_ids {
-            Some(ids) => {
-                let res = self.sender.send(PurgeEvent::APP_PARTIAL_SHUFFLES_PURGE(app_id, ids))?;
-                Ok(res)
-            },
-            _ => {
-                let res = self.sender.send(PurgeEvent::APP_PURGE(app_id))?;
-                Ok(res)
-            }
-        }
+    pub async fn unregister(&self, app_id: String, shuffle_ids: Option<Vec<i32>>) -> Result<()> {
+        let event = match shuffle_ids {
+            Some(ids) => PurgeEvent::APP_PARTIAL_SHUFFLES_PURGE(app_id, ids),
+            _ => PurgeEvent::APP_PURGE(app_id)
+        };
+
+        self.sender.send(event).await?;
+        Ok(())
     }
 }
 

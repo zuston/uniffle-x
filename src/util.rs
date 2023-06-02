@@ -1,6 +1,9 @@
 use std::cmp::max;
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash};
 use std::net::IpAddr;
 use std::sync::mpsc;
+use std::time::{SystemTime, UNIX_EPOCH};
 use bytes::Bytes;
 use crc32fast::Hasher;
 
@@ -33,10 +36,24 @@ pub fn get_crc(bytes: &Bytes) -> i64 {
     crc32.finalize() as i64
 }
 
+pub fn current_timestamp_sec() -> u64 {
+    let current_time = SystemTime::now();
+    let timestamp = current_time
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
+    timestamp
+}
+
 #[cfg(test)]
 mod test {
     use bytes::Bytes;
-    use crate::util::get_crc;
+    use crate::util::{current_timestamp_sec, get_crc};
+
+    #[test]
+    fn time_test() {
+        println!("{}", current_timestamp_sec());
+    }
 
     #[test]
     fn crc_test() {
