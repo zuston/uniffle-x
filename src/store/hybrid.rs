@@ -113,7 +113,7 @@ impl Store for HybridStore {
                     uid: partition_id,
                     data_blocks: blocks.clone()
                 };
-                let in_flight_block_id = buffer_inner.add_blocks_to_send(blocks).unwrap();
+                let in_flight_block_id = buffer_inner.make_in_flight(blocks).unwrap();
                 buffer_inner.staging.clear();
 
                 if self.memory_spill_send.send(SpillMessage {

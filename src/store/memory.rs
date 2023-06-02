@@ -165,14 +165,8 @@ impl Store for MemoryStore {
         let mut buffer_guarded = buffer.lock().await;
 
         let blocks = ctx.data_blocks;
-        let mut added_size = 0i64;
-        for block in blocks {
-            added_size += block.length as i64;
-            buffer_guarded.staging.push(block);
-        }
-
-        let _ = self.budget.allocated_to_used(added_size).await;
-        buffer_guarded.size += added_size;
+        let inserted_size = buffer_guarded.add(blocks)?;
+        self.budget.allocated_to_used(inserted_size).await?;
 
         Ok(())
     }
@@ -316,7 +310,9 @@ impl Store for MemoryStore {
 #[derive(Debug, Clone)]
 pub struct StagingBuffer {
     // optimize this size.
-    pub size: i64,
+    pub total_size: i64,
+    staging_size: i64,
+    in_flight_size: i64,
     pub staging: Vec<PartitionedDataBlock>,
     pub in_flight: BTreeMap<i64, Vec<PartitionedDataBlock>>,
     id_generator: i64
@@ -325,18 +321,68 @@ pub struct StagingBuffer {
 impl StagingBuffer {
     pub fn new() -> StagingBuffer {
         StagingBuffer {
-            size: 0,
+            total_size: 0,
+            staging_size: 0,
+            in_flight_size: 0,
             staging: vec![],
             in_flight: BTreeMap::new(),
             id_generator: 0
         }
     }
 
-    pub fn add_blocks_to_send(&mut self, blocks: Vec<PartitionedDataBlock>) -> Result<i64> {
+    /// add the blocks to the staging
+    pub fn add(&mut self, blocks: Vec<PartitionedDataBlock>) -> Result<i64> {
+        let mut added = 0i64;
+        for block in blocks {
+            added += block.length as i64;
+            self.staging.push(block);
+        }
+        self.total_size += added;
+        Ok(added)
+    }
+
+    /// make the blocks sent to persistent storage
+    pub fn make_in_flight(&mut self, blocks: Vec<PartitionedDataBlock>) -> Result<i64> {
+        let mut size = 0i64;
+        for block in &blocks {
+            size += block.length as i64;
+        }
+        self.staging_size -= size;
+        self.in_flight_size += size;
+
         let id = self.id_generator;
         self.id_generator += 1;
         self.in_flight.insert(id.clone(), blocks);
         Ok(id)
+    }
+
+    /// clear the blocks which are flushed to persistent storage
+    pub fn flight_finished(&mut self, flight_id: &i64) -> Result<i64> {
+        let done = self.in_flight.remove(flight_id);
+
+        let mut removed_size = 0i64;
+        if let Some(removed_blocks) = done {
+            for removed_block in removed_blocks {
+                removed_size += removed_block.length as i64;
+            }
+        }
+
+        self.total_size -= removed_size;
+        self.in_flight_size -= removed_size;
+
+        Ok(removed_size)
+    }
+
+    pub fn get_staging_size(&self) -> Result<i64> {
+        Ok(self.staging_size)
+    }
+
+    pub fn get_in_flight_size(&self) -> Result<i64> {
+        Ok(self.in_flight_size)
+    }
+
+    pub fn get_total_size(&self) -> Result<i64> {
+        Ok(self.total_size)
     }
 }
 
