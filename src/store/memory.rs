@@ -2,6 +2,7 @@ use std::cell::Ref;
 use std::collections::{BTreeMap, HashMap};
 use std::hash::Hash;
 use std::slice::Iter;
+use std::str::FromStr;
 use std::sync::{Arc};
 use std::sync::atomic::{AtomicI64, Ordering};
 use bytes::{BufMut, BytesMut};
@@ -14,6 +15,7 @@ use async_trait::async_trait;
 use tokio::sync::Mutex;
 use crate::config::MemoryStoreConfig;
 use crate::metric::{GAUGE_MEMORY_ALLOCATED, GAUGE_MEMORY_CAPACITY, GAUGE_MEMORY_USED};
+use crate::readable_size::ReadableSize;
 
 pub struct MemoryStore {
     // todo: change to RW lock
@@ -37,11 +39,12 @@ impl MemoryStore {
     }
 
     pub fn from(conf: MemoryStoreConfig) -> Self {
+        let capacity = ReadableSize::from_str(&conf.capacity).unwrap();
         MemoryStore {
             state: DashMap::new(),
-            budget: MemoryBudget::new(conf.capacity),
+            budget: MemoryBudget::new(capacity.as_bytes() as i64),
             memory_allocated_of_app: DashMap::new(),
-            memory_capacity: conf.capacity
+            memory_capacity: capacity.as_bytes() as i64
         }
     }
 

@@ -173,7 +173,7 @@ mod tests {
 
         let mut config = Config::default();
         config.memory_store=Some(MemoryStoreConfig {
-            capacity: (data_len * 1) as i64
+            capacity: ((data_len * 1) as i64).to_string()
         });
         config.localfile_store = Some(LocalfileStoreConfig::new(
             vec![temp_path]

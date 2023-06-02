@@ -372,7 +372,7 @@ mod test {
 
         let mut config = Config::default();
         config.memory_store=Some(MemoryStoreConfig {
-            capacity: 1024 * 1024
+            capacity: (1024 * 1024).to_string()
         });
         config.localfile_store = Some(LocalfileStoreConfig::new(vec![temp_path]));
         config.hybrid_store = Some(HybridStoreConfig {

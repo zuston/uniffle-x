@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct MemoryStoreConfig {
-    pub capacity: i64
+    pub capacity: String
 }
 
 // =========================================================
@@ -105,7 +105,9 @@ impl Config {
 
 #[cfg(test)]
 mod test {
+    use std::str::FromStr;
     use crate::config::Config;
+    use crate::readable_size::ReadableSize;
 
     #[test]
     fn config_test() {
@@ -114,7 +116,7 @@ mod test {
         coordinator_quorum = ["xxxxxxx"]
 
         [memory_store]
-        capacity = 1024
+        capacity = "1024M"
 
         [localfile_store]
         data_paths = ["/data1/uniffle"]
@@ -122,5 +124,8 @@ mod test {
 
         let decoded: Config = toml::from_str(toml_str).unwrap();
         println!("{:#?}", decoded);
+
+        let capacity = ReadableSize::from_str(&decoded.memory_store.unwrap().capacity).unwrap();
+        println!("{}", capacity.as_bytes());
     }
 }

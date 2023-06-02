@@ -31,6 +31,7 @@ mod error;
 mod config;
 mod metric;
 mod util;
+mod readable_size;
 
 async fn schedule_coordinator_report(
     app_manager: AppManagerRef,
