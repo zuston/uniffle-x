@@ -132,12 +132,12 @@ impl FromStr for ReadableSize {
         let (size, unit) = size_str.split_at(size_len);
 
         let unit = match unit.trim() {
-            "K" | "KB" | "KiB" | "k" => KIB,
-            "M" | "MB" | "MiB" | "m" => MIB,
-            "G" | "GB" | "GiB" | "g" => GIB,
-            "T" | "TB" | "TiB" | "t" => TIB,
-            "P" | "PB" | "PiB" | "p" => PIB,
-            "B" | "" | "b" => B,
+            "K" | "KB" | "KiB" => KIB,
+            "M" | "MB" | "MiB" => MIB,
+            "G" | "GB" | "GiB" => GIB,
+            "T" | "TB" | "TiB" => TIB,
+            "P" | "PB" | "PiB" => PIB,
+            "B" | "" => B,
             _ => {
                 return Err(format!(
                     "only B, KB, KiB, MB, MiB, GB, GiB, TB, TiB, PB, and PiB are supported: {:?}",
