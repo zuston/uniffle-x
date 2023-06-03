@@ -676,44 +676,4 @@ mod test {
             _ => panic!("should not")
         }
     }
-
-    #[tokio::test]
-    async fn test_async_trait() {
-        use anyhow::{Result, anyhow};
-        #[async_trait]
-        trait Person {
-            async fn get(&self) -> anyhow::Result<()>;
-            async fn put(&self);
-        }
-
-        struct Man {
-            age: i32
-        }
-
-        #[async_trait]
-        impl Person for Man {
-            async fn get(&self) -> anyhow::Result<()>{
-                Ok(())
-            }
-
-            async fn put(&self) {
-
-            }
-        }
-
-        let man = Man {
-            age: 10
-        };
-
-        man.get().await;
-        man.put().await;
-    }
-
-    #[test]
-    fn test_ratio() {
-        let a = 10i32;
-        let b = 20i32;
-        let c = a as f32 / b as f32;
-        println!("{}", c)
-    }
 }

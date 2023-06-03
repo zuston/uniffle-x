@@ -449,60 +449,6 @@ mod test {
     }
 
     #[tokio::test]
-    async fn test_async_io() {
-        fn test_write() {
-
-        }
-    }
-
-    #[tokio::test]
-    async fn test_deref() {
-        struct Person {
-            age: i32
-        }
-
-        #[derive(Clone)]
-        struct PersonRef {
-            person: Arc<Person>
-        }
-
-        let personRef = PersonRef {
-            person: Arc::new(
-                Person {
-                    age: 12
-                }
-            )
-        };
-
-        let c1 = personRef.clone();
-        let f1 = tokio::spawn(async move {
-            println!("{}", c1.person.age);
-        });
-
-        f1.await;
-        println!("{}", personRef.person.age);
-    }
-
-    #[test]
-    fn test_dashmap_change_value() {
-        let mapper = DashMap::new();
-        mapper.insert("1", 1);
-
-        // Increment the value associated with the key "1" by 2
-        if let Some(mut entry) = mapper.get_mut("1") {
-            *entry += 2;
-        }
-
-        // Get the modified value
-        let v1 = mapper.get("1");
-        if let Some(value) = v1 {
-            println!("Modified value: {:#?}", value.value());
-        } else {
-            println!("Key not found");
-        }
-    }
-
-    #[tokio::test]
     async fn test_get_or_put_block_ids() {
         let app_id = "test_get_or_put_block_ids-----id".to_string();
 
@@ -532,56 +478,6 @@ mod test {
 
         let deserialized = Treemap::deserialize(&data).unwrap();
         assert_eq!(deserialized, Treemap::from_iter(vec![123, 124]));
-    }
-
-    #[test]
-    fn test_treemap() {
-        let mut map = Treemap::create();
-        map.add(123);
-
-        let data = map.serialize().unwrap();
-        let _ = std::fs::write("/tmp/block_ids".to_string(), data);
-    }
-
-    #[tokio::test]
-    async fn test_hashmap_ref() {
-        struct Person {
-            age:  i32
-        }
-
-        impl Person {
-            fn set_age(&mut self, i : i32) {
-                self.age= i;
-            }
-        }
-        let dashmap = Arc::new(DashMap::new());
-        dashmap.insert(1, Person {age: 100});
-        dashmap.insert(2, Person {age: 200});
-
-        let c1 = dashmap.clone();
-        let future = tokio::spawn(async move {
-            let optionCal = c1.get_mut(&1);
-            let mut val = optionCal.unwrap();
-            val.set_age(10);
-
-            println!("Done0")
-
-        });
-
-        let c2 = dashmap.clone();
-        let future1 = tokio::spawn(async move {
-            let optionCal = c2.get_mut(&1);
-            let mut val = optionCal.unwrap();
-            val.set_age(12);
-
-            println!("Done1")
-        });
-
-        future.await;
-        future1.await;
-
-        println!("{}", dashmap.get(&1).unwrap().age);
-        return;
     }
 }
 

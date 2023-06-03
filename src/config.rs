@@ -135,6 +135,6 @@ mod test {
         println!("{:#?}", decoded);
 
         let capacity = ReadableSize::from_str(&decoded.memory_store.unwrap().capacity).unwrap();
-        println!("{}", capacity.as_bytes());
+        assert_eq!(1024 * 1024 * 1024, capacity.as_bytes());
     }
 }
