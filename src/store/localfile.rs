@@ -1,10 +1,13 @@
 use std::borrow::Borrow;
 use std::cell::Ref;
 use std::collections::HashMap;
+use std::fs::read;
 use std::hash::Hash;
 use std::io::SeekFrom;
 use std::path::Path;
 use std::sync::{Arc};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::Duration;
 use dashmap::DashMap;
 use crate::app::{PartitionedUId, ReadingIndexViewContext, ReadingViewContext, RequireBufferContext, WritingViewContext};
 use anyhow::Result;
@@ -13,6 +16,7 @@ use tokio::fs::OpenOptions;
 use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt};
 use crate::store::{LocalDataIndex, PartitionedLocalData, ResponseData, ResponseDataIndex, Store};
 use async_trait::async_trait;
+use futures::future::err;
 use log::{debug, error, info};
 use tokio::sync::{RwLock, Semaphore};
 use tonic::codegen::ok;
@@ -34,7 +38,6 @@ pub struct LocalFileStore {
     local_disks: Vec<Arc<LocalDisk>>,
     partition_written_disk_map: DashMap<String, DashMap<i32, DashMap<i32, Arc<LocalDisk>>>>,
     partition_file_locks: DashMap<String, Arc<RwLock<()>>>,
-    local_disk_config_options: LocalDiskConfig,
 }
 
 unsafe impl Send for LocalFileStore {}
@@ -45,32 +48,31 @@ impl LocalFileStore {
         let mut local_disk_instances = vec![];
         for path in local_disks {
             local_disk_instances.push(
-                Arc::new(LocalDisk::new(path, 10))
+                LocalDisk::new(path, LocalDiskConfig::default())
             );
         }
         LocalFileStore {
             local_disks: local_disk_instances,
             partition_written_disk_map: DashMap::new(),
             partition_file_locks: DashMap::new(),
-            local_disk_config_options: Default::default()
         }
     }
 
     pub fn from(localfile_config: LocalfileStoreConfig) -> Self {
         let mut local_disk_instances = vec![];
         for path in localfile_config.data_paths {
-            local_disk_instances.push(
-                Arc::new(LocalDisk::new(path, localfile_config.per_disk_max_concurrency.unwrap_or(40)))
-            );
+            let config = LocalDiskConfig {
+                high_watermark: localfile_config.disk_high_watermark.unwrap_or(0.8),
+                low_watermark: localfile_config.disk_low_watermark.unwrap_or(0.6),
+                max_concurrency: localfile_config.per_disk_max_concurrency.unwrap_or(40)
+            };
+            
+            local_disk_instances.push(LocalDisk::new(path, config));
         }
         LocalFileStore {
             local_disks: local_disk_instances,
             partition_written_disk_map: DashMap::new(),
             partition_file_locks: DashMap::new(),
-            local_disk_config_options: LocalDiskConfig {
-                high_watermark: localfile_config.disk_high_watermark.unwrap_or(0.8),
-                low_watermark: localfile_config.disk_low_watermark.unwrap_or(0.6)
-            }
         }
     }
 
@@ -140,7 +142,7 @@ impl LocalFileStore {
 
         let mut candidates = vec![];
         for local_disk in &self.local_disks {
-            if !local_disk.is_corrupted {
+            if !local_disk.is_corrupted().unwrap() && local_disk.is_healthy().unwrap() {
                 candidates.push(local_disk);
             }
         }
@@ -315,25 +317,117 @@ impl Store for LocalFileStore {
     }
 }
 
-#[derive(Default)]
 struct LocalDiskConfig {
     high_watermark: f32,
-    low_watermark: f32
+    low_watermark: f32,
+    max_concurrency: i32
+}
+
+impl LocalDiskConfig {
+    fn create_mocked_config() -> Self {
+        LocalDiskConfig {
+            high_watermark: 1.0,
+            low_watermark: 0.6,
+            max_concurrency: 20
+        }
+    }
+}
+
+impl Default for LocalDiskConfig {
+    fn default() -> Self {
+        LocalDiskConfig {
+            high_watermark: 0.8,
+            low_watermark: 0.6,
+            max_concurrency: 40
+        }
+    }
 }
 
 struct LocalDisk {
     base_path: String,
     concurrency_limiter: Semaphore,
-    is_corrupted: bool
+    is_corrupted: AtomicBool,
+    is_healthy: AtomicBool,
+    config: LocalDiskConfig
 }
 
 impl LocalDisk {
-    fn new(path: String, max_concurrency: i32) -> Self {
+    fn new(path: String, config: LocalDiskConfig) -> Arc<Self> {
         create_directory_if_not_exists(&path);
-        LocalDisk {
+        let instance = LocalDisk {
             base_path: path,
-            concurrency_limiter: Semaphore::new(max_concurrency as usize),
-            is_corrupted: false
+            concurrency_limiter: Semaphore::new(config.max_concurrency as usize),
+            is_corrupted: AtomicBool::new(false),
+            is_healthy: AtomicBool::new(true),
+            config,
+        };
+        let instance = Arc::new(instance);
+
+        let cloned = instance.clone();
+        tokio::spawn(async {
+            info!("Starting the disk healthy checking, base path: {}", &cloned.base_path);
+            LocalDisk::loop_check_disk(cloned).await;
+        });
+
+        instance
+    }
+
+    async fn write_read_check(local_disk: Arc<LocalDisk>) -> Result<()> {
+        let temp_path = format!("{}/{}", &local_disk.base_path, "corruption_check.file");
+        let data = Bytes::copy_from_slice(b"file corruption check");
+        {
+            let mut file = OpenOptions::new().write(true).create(true).open(&temp_path).await?;
+            file.write_all(&data).await?;
+            file.flush().await?;
+        }
+
+        let mut read_data = Vec::new();
+        {
+            let mut file = tokio::fs::File::open(&temp_path).await?;
+            file.read_to_end(&mut read_data).await?;
+
+            tokio::fs::remove_file(&temp_path).await?;
+        }
+
+        if data != Bytes::copy_from_slice(&read_data) {
+            local_disk.mark_corrupted();
+            error!("The local disk has been corrupted. path: {}", &local_disk.base_path);
+        }
+
+        Ok(())
+    }
+
+    async fn loop_check_disk(local_disk: Arc<LocalDisk>) {
+        loop {
+            tokio::time::sleep(Duration::from_secs(10)).await;
+
+            if local_disk.is_corrupted().unwrap() {
+                return;
+            }
+
+            let check_succeed: Result<()> = LocalDisk::write_read_check(local_disk.clone()).await;
+            if check_succeed.is_err() {
+                local_disk.mark_corrupted();
+                error!("Errors on checking local disk corruption. err: {:#?}", check_succeed.err());
+            }
+
+            // check the capacity
+            let used_ratio = local_disk.get_disk_used_ratio();
+            if used_ratio.is_err() {
+                error!("Errors on getting the used ratio of the disk capacity. err: {:?}", used_ratio.err());
+                continue;
+            }
+
+            let used_ratio = used_ratio.unwrap();
+            if local_disk.is_healthy().unwrap() && used_ratio > local_disk.config.high_watermark as f64 {
+                local_disk.mark_unhealthy();
+                continue;
+            }
+
+            if !local_disk.is_healthy().unwrap() && used_ratio < local_disk.config.low_watermark as f64 {
+                local_disk.mark_healthy();
+                continue;
+            }
         }
     }
 
@@ -405,11 +499,26 @@ impl LocalDisk {
         Ok(())
     }
 
-    fn is_corrupted(&self) -> Result<bool> {
-        // todo: add implementation to check the disk availability
-        Ok(self.is_corrupted)
+    fn mark_corrupted(&self) {
+        self.is_corrupted.store(true, Ordering::SeqCst);
     }
 
+    fn mark_unhealthy(&self) {
+        self.is_healthy.store(false, Ordering::SeqCst);
+    }
+
+    fn mark_healthy(&self) {
+        self.is_healthy.store(true, Ordering::SeqCst);
+    }
+
+    fn is_corrupted(&self) -> Result<bool> {
+        Ok(self.is_corrupted.load(Ordering::SeqCst))
+    }
+
+    fn is_healthy(&self) -> Result<bool> {
+        Ok(self.is_healthy.load(Ordering::SeqCst))
+    }
+    
     fn get_disk_used_ratio(&self) -> Result<f64> {
         // Get the total and available space in bytes
         let available_space = fs2::available_space(&self.base_path)?;
@@ -422,10 +531,12 @@ impl LocalDisk {
 mod test {
     use std::fs::read;
     use std::io::Read;
+    use std::time::Duration;
     use bytes::{Buf, Bytes, BytesMut};
     use log::info;
+    use tracing_subscriber::fmt::time;
     use crate::app::{PartitionedUId, ReadingIndexViewContext, ReadingOptions, ReadingViewContext, WritingViewContext};
-    use crate::store::localfile::{LocalDisk, LocalFileStore};
+    use crate::store::localfile::{LocalDisk, LocalDiskConfig, LocalFileStore};
     use crate::store::{PartitionedDataBlock, ResponseData, ResponseDataIndex, Store};
 
     #[tokio::test]
@@ -539,7 +650,7 @@ mod test {
 
         println!("init the path: {}", &temp_path);
 
-        let mut local_disk = LocalDisk::new(temp_path.clone(), 10);
+        let mut local_disk = LocalDisk::new(temp_path.clone(), LocalDiskConfig::default());
 
         let data = b"hello!";
         local_disk.write(Bytes::copy_from_slice(data), "a/b".to_string()).await.unwrap();
@@ -551,11 +662,23 @@ mod test {
     }
 
     #[tokio::test]
+    async fn local_disk_corruption_healthy_check() {
+        let temp_dir = tempdir::TempDir::new("test_directory").unwrap();
+        let temp_path = temp_dir.path().to_str().unwrap().to_string();
+
+        let mut local_disk = LocalDisk::new(temp_path.clone(), LocalDiskConfig::create_mocked_config());
+
+        tokio::time::sleep(Duration::from_secs(12)).await;
+        assert_eq!(true, local_disk.is_healthy().unwrap());
+        assert_eq!(false, local_disk.is_corrupted().unwrap());
+    }
+
+    #[tokio::test]
     async fn local_disk_test() {
         let temp_dir = tempdir::TempDir::new("test_directory").unwrap();
         let temp_path = temp_dir.path().to_str().unwrap().to_string();
 
-        let mut local_disk = LocalDisk::new(temp_path.clone(), 10);
+        let mut local_disk = LocalDisk::new(temp_path.clone(), LocalDiskConfig::default());
 
         let data = b"Hello, World!";
 
