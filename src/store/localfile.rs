@@ -291,16 +291,15 @@ impl Store for LocalFileStore {
             return Ok(());
         }
 
-        // delete app dir
-        let (shuffle_id, partition_id) = all_partition_ids.get(0).unwrap();
-        let local_disk_option = self.get_owned_disk(PartitionedUId::from(app_id.clone(), *shuffle_id, *partition_id));
-        if local_disk_option.is_some() {
-            let local_disk = local_disk_option.unwrap();
-            local_disk.delete(app_relative_dir_path).await?;
-        }
+        for (shuffle_id, partition_id) in all_partition_ids.into_iter() {
+            // delete app dir
+            let local_disk_option = self.get_owned_disk(PartitionedUId::from(app_id.clone(), shuffle_id, partition_id));
+            if local_disk_option.is_some() {
+                let local_disk = local_disk_option.unwrap();
+                local_disk.delete(app_relative_dir_path.clone()).await?;
+            }
 
-        // delete lock
-        for (shuffle_id, partition_id) in all_partition_ids {
+            // delete lock
             let uid = PartitionedUId {
                 app_id: app_id.clone(),
                 shuffle_id,
