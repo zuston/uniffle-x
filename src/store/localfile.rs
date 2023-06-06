@@ -166,7 +166,7 @@ impl Store for LocalFileStore {
         todo!()
     }
 
-    async fn insert(&self, ctx: WritingViewContext) -> Result<()> {
+    async fn insert(&self, mut  ctx: WritingViewContext) -> Result<()> {
         if ctx.data_blocks.len() <= 0 {
             return Ok(());
         }
@@ -178,6 +178,9 @@ impl Store for LocalFileStore {
 
         let lock_cloned = self.partition_file_locks.entry(data_file_path.clone()).or_insert_with(|| Arc::new(RwLock::new(()))).clone();
         let lock_guard = lock_cloned.write().await;
+
+        // resort the blocks by task_attempt_id to support local order
+        ctx.data_blocks.sort_by_key(|block| block.task_attempt_id);
 
         // write index file and data file
         // todo: split multiple pieces
