@@ -20,9 +20,9 @@ use crate::readable_size::ReadableSize;
 pub struct MemoryStore {
     // todo: change to RW lock
     state: DashMap<String, DashMap<i32, DashMap<i32, Arc<Mutex<StagingBuffer>>>>>,
-    pub budget: MemoryBudget,
+    budget: MemoryBudget,
     memory_allocated_of_app: DashMap<String, i64>,
-    pub memory_capacity: i64,
+    memory_capacity: i64,
 }
 
 unsafe impl Send for MemoryStore {}
@@ -51,21 +51,13 @@ impl MemoryStore {
     // todo: make this used size as a var
     pub async fn memory_usage_ratio(&self) -> f32 {
         let (capacity, allocated, used) = self.budget.snapshot().await;
-
-        // let mut in_flight = 0i64;
-        // for app_entry in self.state.iter() {
-        //     for shuffle_entry in app_entry.value().iter() {
-        //         for partition_entry in shuffle_entry.value().iter() {
-        //             for (_, blocks) in partition_entry.value().lock().await.in_flight.iter() {
-        //                 for block in blocks {
-        //                     in_flight += block.length as i64;
-        //                 }
-        //             }
-        //         }
-        //     }
-        // }
-
         (allocated + used) as f32 / capacity as f32
+    }
+
+    pub fn get_capacity(&self) -> Result<i64> {
+        Ok(
+            self.memory_capacity
+        )
     }
 
     pub async fn free_memory(&self, size: i64) -> Result<bool> {
@@ -126,7 +118,7 @@ impl MemoryStore {
     pub async fn release_in_flight_blocks_in_underlying_staging_buffer(&self, uid: PartitionedUId, in_flight_blocks_id: i64) -> Result<()> {
         let buffer = self.get_or_create_underlying_staging_buffer(uid);
         let mut buffer_ref = buffer.lock().await;
-        buffer_ref.in_flight.remove(&in_flight_blocks_id);
+        buffer_ref.flight_finished(&in_flight_blocks_id)?;
         Ok(())
     }
 
@@ -313,11 +305,11 @@ impl Store for MemoryStore {
 #[derive(Debug, Clone)]
 pub struct StagingBuffer {
     // optimize this size.
-    pub total_size: i64,
+    total_size: i64,
     staging_size: i64,
     in_flight_size: i64,
-    pub staging: Vec<PartitionedDataBlock>,
-    pub in_flight: BTreeMap<i64, Vec<PartitionedDataBlock>>,
+    staging: Vec<PartitionedDataBlock>,
+    in_flight: BTreeMap<i64, Vec<PartitionedDataBlock>>,
     id_generator: i64
 }
 
@@ -345,18 +337,20 @@ impl StagingBuffer {
     }
 
     /// make the blocks sent to persistent storage
-    pub fn make_in_flight(&mut self, blocks: Vec<PartitionedDataBlock>) -> Result<i64> {
-        let mut size = 0i64;
-        for block in &blocks {
-            size += block.length as i64;
-        }
-        self.staging_size -= size;
-        self.in_flight_size += size;
+    pub fn migrate_staging_to_in_flight(&mut self) -> Result<(i64, Vec<PartitionedDataBlock>)> {
+        self.in_flight_size += self.staging_size;
+        self.staging_size = 0;
+
+        let blocks = self.staging.to_owned();
+        self.staging.clear();
 
         let id = self.id_generator;
         self.id_generator += 1;
-        self.in_flight.insert(id.clone(), blocks);
-        Ok(id)
+        self.in_flight.insert(id.clone(), blocks.clone());
+
+        Ok(
+            (id, blocks)
+        )
     }
 
     /// clear the blocks which are flushed to persistent storage
