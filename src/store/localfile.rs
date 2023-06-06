@@ -45,7 +45,7 @@ impl LocalFileStore {
         let mut local_disk_instances = vec![];
         for path in local_disks {
             local_disk_instances.push(
-                Arc::new(LocalDisk::new(path))
+                Arc::new(LocalDisk::new(path, 10))
             );
         }
         LocalFileStore {
@@ -60,7 +60,7 @@ impl LocalFileStore {
         let mut local_disk_instances = vec![];
         for path in localfile_config.data_paths {
             local_disk_instances.push(
-                Arc::new(LocalDisk::new(path))
+                Arc::new(LocalDisk::new(path, localfile_config.per_disk_max_concurrency.unwrap_or(40)))
             );
         }
         LocalFileStore {
@@ -325,11 +325,11 @@ struct LocalDisk {
 }
 
 impl LocalDisk {
-    fn new(path: String) -> Self {
+    fn new(path: String, max_concurrency: i32) -> Self {
         create_directory_if_not_exists(&path);
         LocalDisk {
             base_path: path,
-            concurrency_limiter: Semaphore::new(40),
+            concurrency_limiter: Semaphore::new(max_concurrency as usize),
             is_corrupted: false
         }
     }
@@ -536,7 +536,7 @@ mod test {
 
         println!("init the path: {}", &temp_path);
 
-        let mut local_disk = LocalDisk::new(temp_path.clone());
+        let mut local_disk = LocalDisk::new(temp_path.clone(), 10);
 
         let data = b"hello!";
         local_disk.write(Bytes::copy_from_slice(data), "a/b".to_string()).await.unwrap();
@@ -552,7 +552,7 @@ mod test {
         let temp_dir = tempdir::TempDir::new("test_directory").unwrap();
         let temp_path = temp_dir.path().to_str().unwrap().to_string();
 
-        let mut local_disk = LocalDisk::new(temp_path.clone());
+        let mut local_disk = LocalDisk::new(temp_path.clone(), 10);
 
         let data = b"Hello, World!";
 

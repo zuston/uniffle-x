@@ -13,7 +13,8 @@ pub struct MemoryStoreConfig {
 pub struct LocalfileStoreConfig {
     pub data_paths: Vec<String>,
     pub disk_high_watermark: Option<f32>,
-    pub disk_low_watermark: Option<f32>
+    pub disk_low_watermark: Option<f32>,
+    pub per_disk_max_concurrency: Option<i32>,
 }
 
 impl LocalfileStoreConfig {
@@ -21,7 +22,8 @@ impl LocalfileStoreConfig {
         LocalfileStoreConfig {
             data_paths,
             disk_high_watermark: None,
-            disk_low_watermark: None
+            disk_low_watermark: None,
+            per_disk_max_concurrency: None
         }
     }
 }
