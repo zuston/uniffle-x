@@ -1,5 +1,6 @@
 use std::borrow::BorrowMut;
 use std::collections::hash_map::DefaultHasher;
+use std::collections::HashSet;
 use std::fs::read;
 use std::hash::{Hash, Hasher};
 use std::io::Read;
@@ -19,7 +20,7 @@ use tokio::runtime::Runtime;
 use tonic::codegen::ok;
 use crate::config::Config;
 use crate::error::DatanodeError;
-use crate::metric::TOTAL_RECEIVED_DATA;
+use crate::metric::{GAUGE_APP_NUMBER, GAUGE_PARTITION_NUMBER, TOTAL_APP_NUMBER, TOTAL_RECEIVED_DATA};
 use crate::proto::uniffle::ShuffleData;
 use crate::store;
 use crate::store::{PartitionedData, PartitionedDataBlock, ResponseData, ResponseDataIndex, Store, StoreProvider};
@@ -77,14 +78,14 @@ impl App {
     }
 
     pub fn register_shuffle(&self, shuffle_id: i32) -> Result<()> {
-        self.app.partitions.entry(shuffle_id).or_insert_with(||vec![]);
+        self.app.partitions.entry(shuffle_id).or_insert_with(||HashSet::new());
         Ok(())
     }
 
     pub async fn insert(&self, ctx: WritingViewContext) -> Result<()> {
         let len: i32 = ctx.data_blocks.iter().map(|block| block.length).sum();
         TOTAL_RECEIVED_DATA.inc_by(len as u64);
-
+        
         self.store.insert(ctx).await
     }
 
@@ -158,7 +159,7 @@ pub struct GetBlocksContext {
 pub struct AppInner {
     app_id: String,
     // key: shuffleId, value: partitionIds
-    partitions: DashMap<i32, Vec<i32>>,
+    partitions: DashMap<i32, HashSet<i32>>,
     app_config_options: Option<AppConfigOptions>,
     latest_heartbeat_time: AtomicU64
 }
@@ -271,7 +272,7 @@ impl AppManager {
                         Ok(())
                     }
                 };
-
+                GAUGE_APP_NUMBER.dec();
                 if purge_result.is_err() {
                     error!("Errors on purging data..");
                 }
@@ -301,7 +302,11 @@ impl AppManager {
 
     pub fn register(&self, app_id: String, shuffle_id: i32) -> Result<()> {
         info!("Accepted registry. app_id: {}, shuffle_id: {}", app_id.clone(), shuffle_id);
-        let mut appRef = self.apps.entry(app_id.clone()).or_insert_with(|| Arc::new(App::from(app_id, None, self.store.clone())));
+        let mut appRef = self.apps.entry(app_id.clone()).or_insert_with(|| {
+            TOTAL_APP_NUMBER.inc();
+            GAUGE_APP_NUMBER.inc();
+            Arc::new(App::from(app_id, None, self.store.clone()))
+        });
         appRef.register_shuffle(shuffle_id)
     }
 
