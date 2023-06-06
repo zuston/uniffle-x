@@ -188,6 +188,9 @@ impl Store for LocalFileStore {
         // todo: split multiple pieces
         let mut next_offset = local_disk.get_file_len(data_file_path.clone()).await?;
 
+        let mut index_bytes_holder = BytesMut::new();
+        let mut data_bytes_holder = BytesMut::new();
+
         let mut batch_size = 0;
         for block in ctx.data_blocks {
             batch_size += 1;
@@ -198,7 +201,6 @@ impl Store for LocalFileStore {
             let task_attempt_id = block.task_attempt_id;
             let crc = block.crc;
 
-            let mut index_bytes_holder = BytesMut::new();
             index_bytes_holder.put_i64(next_offset);
             index_bytes_holder.put_i32(length);
             index_bytes_holder.put_i32(uncompress_len);
@@ -211,10 +213,12 @@ impl Store for LocalFileStore {
             //     error!("The crc value is not the same. partition id: {}, block id: {}", pid, block_id);
             // }
 
-            local_disk.write(data, data_file_path.clone()).await?;
-            local_disk.write(index_bytes_holder.freeze(), index_file_path.clone()).await?;
+            data_bytes_holder.extend_from_slice(&data);
             next_offset += length as i64;
         }
+
+        local_disk.write(data_bytes_holder.freeze(), data_file_path.clone()).await?;
+        local_disk.write(index_bytes_holder.freeze(), index_file_path.clone()).await?;
 
         debug!("flush partition: {}, batch_size: {}", pid, batch_size);
 
