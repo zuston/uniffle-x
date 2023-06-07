@@ -1,6 +1,8 @@
 use std::borrow::BorrowMut;
+use std::cmp::max;
 use std::collections::HashMap;
 use std::hash::Hash;
+use std::str::FromStr;
 use std::sync::{Arc};
 use std::time::Duration;
 use crate::app::{PartitionedUId, ReadingIndexViewContext, ReadingOptions, ReadingViewContext, RequireBufferContext, WritingViewContext};
@@ -13,13 +15,14 @@ use async_channel::TryRecvError;
 use log::{debug, error, info};
 use prometheus::core::{Atomic, AtomicU64};
 use tokio::runtime::Runtime;
-use tokio::sync::{mpsc, Mutex, oneshot};
+use tokio::sync::{mpsc, Mutex, MutexGuard, oneshot};
 use tokio::sync::mpsc::Receiver;
 use tokio::task::JoinHandle;
 use tracing::field::debug;
 use crate::config;
 use crate::config::{Config, HybridStoreConfig, LocalfileStoreConfig};
 use crate::metric::{TOTAL_MEMORY_SPILL_OPERATION, TOTAL_MEMORY_SPILL_OPERATION_FAILED};
+use crate::readable_size::ReadableSize;
 use crate::store::ResponseData::mem;
 
 pub struct HybridStore {
@@ -82,6 +85,26 @@ impl HybridStore {
             self.memory_spill_event_num.get()
         )
     }
+
+    async fn make_memory_buffer_flush(&self, buffer_inner: &mut MutexGuard<'_, StagingBuffer>, uid: PartitionedUId) -> Result<()> {
+        let (in_flight_uid, blocks) = buffer_inner.migrate_staging_to_in_flight()?;
+
+        let writingCtx = WritingViewContext {
+            uid,
+            data_blocks: blocks
+        };
+
+        if self.memory_spill_send.send(SpillMessage {
+            ctx: writingCtx,
+            id: in_flight_uid
+        }).await.is_err() {
+            error!("Errors on sending spill message to queue. This should not happen.");
+        } else {
+            self.memory_spill_event_num.inc_by(1);
+        }
+
+        Ok(())
+    }
 }
 
 #[async_trait]
@@ -110,8 +133,28 @@ impl Store for HybridStore {
     }
 
     async fn insert(&self, ctx: WritingViewContext) -> Result<()> {
+        let uid = ctx.uid.clone();
         let insert_result = self.hot_store.insert(ctx).await;
+
         let spill_lock = self.memory_spill_lock.lock().await;
+
+        // single buffer flush
+        let buffer = self.hot_store.get_or_create_underlying_staging_buffer(uid.clone());
+        let mut buffer_inner = buffer.lock().await;
+        let max_spill_size = &self.config.memory_single_buffer_max_spill_size;
+        if max_spill_size.is_some() {
+            match ReadableSize::from_str(max_spill_size.clone().unwrap().as_str()) {
+                Ok(size) => {
+                    if size.as_bytes() < buffer_inner.get_staging_size()? as u64 {
+                        self.make_memory_buffer_flush(&mut buffer_inner, uid.clone());
+                    }
+                },
+                _ => {}
+            }
+        }
+        drop(buffer_inner);
+
+        // watermark flush
         let used_ratio = self.hot_store.memory_usage_ratio().await;
         if used_ratio > self.config.memory_spill_high_watermark {
             let target_size = (self.hot_store.get_capacity()? as f32 * self.config.memory_spill_low_watermark) as i64;
@@ -119,22 +162,7 @@ impl Store for HybridStore {
 
             for (partition_id, buffer) in buffers {
                 let mut buffer_inner = buffer.lock().await;
-
-                let (in_flight_uid, blocks) = buffer_inner.migrate_staging_to_in_flight().unwrap();
-
-                let writingCtx = WritingViewContext {
-                    uid: partition_id,
-                    data_blocks: blocks
-                };
-
-                if self.memory_spill_send.send(SpillMessage {
-                    ctx: writingCtx,
-                    id: in_flight_uid
-                }).await.is_err() {
-                    error!("Errors on sending spill message to queue. This should not happen.");
-                } else {
-                    self.memory_spill_event_num.inc_by(1);
-                }
+                self.make_memory_buffer_flush(&mut buffer_inner, uid.clone()).await?;
             }
             debug!("Trigger spilling in background....");
         }
@@ -202,7 +230,8 @@ mod tests {
         ));
         config.hybrid_store = Some(HybridStoreConfig {
             memory_spill_high_watermark: 0.8,
-            memory_spill_low_watermark: 0.2
+            memory_spill_low_watermark: 0.2,
+            memory_single_buffer_max_spill_size: None
         });
         config.store_type = Some(StorageType::MEMORY_LOCALFILE);
 

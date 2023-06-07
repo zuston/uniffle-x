@@ -392,10 +392,7 @@ mod test {
             capacity: (1024 * 1024).to_string()
         });
         config.localfile_store = Some(LocalfileStoreConfig::new(vec![temp_path]));
-        config.hybrid_store = Some(HybridStoreConfig {
-            memory_spill_high_watermark: 0.8,
-            memory_spill_low_watermark: 0.7
-        });
+        config.hybrid_store = Some(HybridStoreConfig::default());
         config
     }
 

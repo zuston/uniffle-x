@@ -36,6 +36,17 @@ impl LocalfileStoreConfig {
 pub struct HybridStoreConfig {
     pub memory_spill_high_watermark: f32,
     pub memory_spill_low_watermark: f32,
+    pub memory_single_buffer_max_spill_size: Option<String>
+}
+
+impl Default for HybridStoreConfig {
+    fn default() -> Self {
+        HybridStoreConfig {
+            memory_spill_high_watermark: 0.8,
+            memory_spill_low_watermark: 0.7,
+            memory_single_buffer_max_spill_size: None
+        }
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Default)]
@@ -133,6 +144,11 @@ mod test {
 
         [localfile_store]
         data_paths = ["/data1/uniffle"]
+
+        [hybrid_store]
+        memory_spill_high_watermark = 0.8
+        memory_spill_low_watermark = 0.2
+        memory_single_buffer_max_spill_size = "256M"
         "#;
 
         let decoded: Config = toml::from_str(toml_str).unwrap();
