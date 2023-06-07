@@ -50,8 +50,12 @@ impl MemoryStore {
 
     // todo: make this used size as a var
     pub async fn memory_usage_ratio(&self) -> f32 {
-        let (capacity, allocated, used) = self.budget.snapshot().await;
-        (allocated + used) as f32 / capacity as f32
+        let snapshot = self.budget.snapshot().await;
+        snapshot.get_used_percent()
+    }
+
+    pub async fn memory_snapshot(&self) -> Result<MemorySnapshot> {
+        Ok(self.budget.snapshot().await)
     }
 
     pub fn get_capacity(&self) -> Result<i64> {
@@ -387,6 +391,37 @@ impl StagingBuffer {
     }
 }
 
+pub struct MemorySnapshot {
+    capacity: i64,
+    allocated: i64,
+    used: i64
+}
+
+impl From<(i64, i64, i64)> for MemorySnapshot {
+    fn from(value: (i64, i64, i64)) -> Self {
+        MemorySnapshot {
+            capacity: value.0,
+            allocated: value.1,
+            used: value.2
+        }
+    }
+}
+
+impl MemorySnapshot {
+    pub fn get_capacity(&self) -> i64 {
+        self.capacity
+    }
+    pub fn get_allocated(&self) -> i64 {
+        self.allocated
+    }
+    pub fn get_used(&self) -> i64 {
+        self.used
+    }
+    fn get_used_percent(&self) -> f32 {
+        (self.allocated + self.used) as f32 / self.capacity as f32
+    }
+}
+
 #[derive(Clone)]
 pub struct MemoryBudget {
     inner: Arc<Mutex<MemoryBudgetInner>>
@@ -416,13 +451,13 @@ impl MemoryBudget {
         }
     }
 
-    pub async fn snapshot(&self) -> (i64, i64, i64) {
+    pub async fn snapshot(&self) -> MemorySnapshot {
         let mut inner = self.inner.lock().await;
         (
             inner.capacity,
             inner.allocated,
             inner.used
-        )
+        ).into()
     }
 
 

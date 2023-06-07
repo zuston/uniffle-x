@@ -21,6 +21,7 @@ use crate::config::{Config, LogConfig, MetricsConfig, RotationConfig};
 use crate::metric::start_metric_service;
 use crate::proto::uniffle::coordinator_server_client::CoordinatorServerClient;
 use crate::proto::uniffle::{ShuffleServerHeartBeatRequest, ShuffleServerId, StatusCode};
+use crate::store::ResponseData::mem;
 use crate::util::get_local_ip;
 
 pub mod proto;
@@ -67,12 +68,15 @@ async fn schedule_coordinator_report(
             all_tags.extend_from_slice(&*tags);
 
             let healthy = app_manager.store_is_healthy().await.unwrap_or(false);
+            let memory_snapshot = app_manager.store_memory_snapshot().await.unwrap_or((0, 0, 0).into());
+            let memory_spill_event_num = app_manager.store_memory_spill_event_num().unwrap_or(0) as i32;
+
             let heartbeat_req = ShuffleServerHeartBeatRequest {
                 server_id: Some(shuffle_server_id.clone()),
-                used_memory: 0,
-                pre_allocated_memory: 0,
-                available_memory: 1024 * 1024 * 1024 * 10,
-                event_num_in_flush: 0,
+                used_memory: memory_snapshot.get_used(),
+                pre_allocated_memory: memory_snapshot.get_allocated(),
+                available_memory: memory_snapshot.get_capacity() - memory_snapshot.get_used() - memory_snapshot.get_allocated(),
+                event_num_in_flush: memory_spill_event_num,
                 tags: all_tags,
                 is_healthy: Some(healthy),
                 status: 0,

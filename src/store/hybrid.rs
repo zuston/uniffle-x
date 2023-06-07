@@ -4,13 +4,14 @@ use std::hash::Hash;
 use std::sync::{Arc};
 use std::time::Duration;
 use crate::app::{PartitionedUId, ReadingIndexViewContext, ReadingOptions, ReadingViewContext, RequireBufferContext, WritingViewContext};
-use crate::store::memory::{MemoryStore, StagingBuffer};
+use crate::store::memory::{MemorySnapshot, MemoryStore, StagingBuffer};
 use crate::store::{ResponseData, ResponseDataIndex, Store};
 use crate::store::localfile::LocalFileStore;
 use async_trait::async_trait;
 use anyhow::{Result, anyhow};
 use async_channel::TryRecvError;
 use log::{debug, error, info};
+use prometheus::core::{Atomic, AtomicU64};
 use tokio::runtime::Runtime;
 use tokio::sync::{mpsc, Mutex, oneshot};
 use tokio::sync::mpsc::Receiver;
@@ -28,7 +29,8 @@ pub struct HybridStore {
     config: HybridStoreConfig,
     memory_spill_lock: Mutex<()>,
     memory_spill_recv: async_channel::Receiver<SpillMessage>,
-    memory_spill_send: async_channel::Sender<SpillMessage>
+    memory_spill_send: async_channel::Sender<SpillMessage>,
+    memory_spill_event_num: AtomicU64,
 }
 
 struct SpillMessage {
@@ -48,7 +50,8 @@ impl HybridStore {
             config: config.hybrid_store.unwrap(),
             memory_spill_lock: Mutex::new(()),
             memory_spill_recv: recv,
-            memory_spill_send: send
+            memory_spill_send: send,
+            memory_spill_event_num: AtomicU64::new(0)
         };
         store
     }
@@ -68,6 +71,16 @@ impl HybridStore {
         self.hot_store.free_memory(spill_size).await?;
 
         Ok(message)
+    }
+
+    pub async fn get_hot_store_memory_snapshot(&self) -> Result<MemorySnapshot> {
+        self.hot_store.memory_snapshot().await
+    }
+
+    pub fn memory_spill_event_num(&self) -> Result<u64> {
+        Ok(
+            self.memory_spill_event_num.get()
+        )
     }
 }
 
@@ -90,6 +103,7 @@ impl Store for HybridStore {
                             error!("Errors on spilling memory data to localfile. error: {:#?}", error)
                         }
                     }
+                    store_cloned.memory_spill_event_num.dec_by(1);
                 });
             }
         });
@@ -118,6 +132,8 @@ impl Store for HybridStore {
                     id: in_flight_uid
                 }).await.is_err() {
                     error!("Errors on sending spill message to queue. This should not happen.");
+                } else {
+                    self.memory_spill_event_num.inc_by(1);
                 }
             }
             debug!("Trigger spilling in background....");

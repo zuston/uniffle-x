@@ -25,7 +25,7 @@ use crate::proto::uniffle::ShuffleData;
 use crate::store;
 use crate::store::{PartitionedData, PartitionedDataBlock, ResponseData, ResponseDataIndex, Store, StoreProvider};
 use crate::store::hybrid::HybridStore;
-use crate::store::memory::MemoryStore;
+use crate::store::memory::{MemorySnapshot, MemoryStore};
 use crate::util::current_timestamp_sec;
 
 #[derive(Debug, Clone)]
@@ -284,6 +284,14 @@ impl AppManager {
 
     pub async fn store_is_healthy(&self) -> Result<bool> {
         self.store.is_healthy().await
+    }
+
+    pub async fn store_memory_snapshot(&self) -> Result<MemorySnapshot> {
+        self.store.get_hot_store_memory_snapshot().await
+    }
+
+    pub fn store_memory_spill_event_num(&self) -> Result<u64> {
+        self.store.memory_spill_event_num()
     }
 
     async fn purge_app_data(&self, app_id: String) -> Result<()> {
