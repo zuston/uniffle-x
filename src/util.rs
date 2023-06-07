@@ -1,8 +1,9 @@
+use std::cell::RefCell;
 use std::cmp::max;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash};
 use std::net::IpAddr;
-use std::sync::mpsc;
+use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 use bytes::Bytes;
 use crc32fast::Hasher;
@@ -45,10 +46,68 @@ pub fn current_timestamp_sec() -> u64 {
     timestamp
 }
 
+pub struct ConcurrencyLimiter {
+    remaining: Mutex<u32>
+}
+
+pub struct Ticket<'a> {
+    limiter: &'a ConcurrencyLimiter,
+    id: u32
+}
+
+impl ConcurrencyLimiter {
+    fn new(size: u32) -> Self {
+        ConcurrencyLimiter {
+            remaining: Mutex::new(size)
+        }
+    }
+
+    pub fn try_acquire(&self) -> Option<Ticket<'_>> {
+        let mut remaining = self.remaining.lock().unwrap();
+        if *remaining <= 0 {
+            None
+        } else {
+            let id = *remaining;
+            *remaining -= 1;
+            Some(
+                Ticket {
+                    limiter: self,
+                    id
+                }
+            )
+        }
+    }
+}
+
+impl Drop for Ticket<'_> {
+    fn drop(&mut self) {
+        let mut lock = self.limiter.remaining.lock().unwrap();
+        *lock += 1;
+    }
+}
+
 #[cfg(test)]
 mod test {
+    use std::sync::Arc;
     use bytes::Bytes;
-    use crate::util::{current_timestamp_sec, get_crc};
+    use crate::util::{current_timestamp_sec, get_crc, Ticket, ConcurrencyLimiter};
+
+    #[test]
+    fn ticket_test() {
+        let limiter = ConcurrencyLimiter::new(2);
+        {
+            let ticket = limiter.try_acquire().unwrap();
+            assert_eq!(2, ticket.id);
+
+            let ticket = limiter.try_acquire().unwrap();
+            assert_eq!(1, ticket.id);
+
+            assert_eq!(true, limiter.try_acquire().is_none());
+        }
+
+        let ticket = limiter.try_acquire();
+        assert_eq!(true, ticket.is_some());
+    }
 
     #[test]
     fn time_test() {
