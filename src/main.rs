@@ -34,6 +34,8 @@ mod metric;
 mod util;
 mod readable_size;
 
+const DEFAULT_SHUFFLE_SERVER_TAG: &str = "ss_v4";
+
 async fn schedule_coordinator_report(
     app_manager: AppManagerRef,
     coordinator_quorum: Vec<String>,
@@ -64,7 +66,7 @@ async fn schedule_coordinator_report(
             tokio::time::sleep(Duration::from_secs(10)).await;
 
             let mut all_tags = vec![];
-            all_tags.push("ss_v4".to_string());
+            all_tags.push(DEFAULT_SHUFFLE_SERVER_TAG.to_string());
             all_tags.extend_from_slice(&*tags);
 
             let healthy = app_manager.store_is_healthy().await.unwrap_or(false);
