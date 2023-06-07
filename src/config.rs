@@ -12,18 +12,20 @@ pub struct MemoryStoreConfig {
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct LocalfileStoreConfig {
     pub data_paths: Vec<String>,
+    pub healthy_check_min_disks: Option<i32>,
     pub disk_high_watermark: Option<f32>,
     pub disk_low_watermark: Option<f32>,
-    pub per_disk_max_concurrency: Option<i32>,
+    pub disk_max_concurrency: Option<i32>,
 }
 
 impl LocalfileStoreConfig {
     pub fn new(data_paths: Vec<String>) -> Self {
         LocalfileStoreConfig {
             data_paths,
+            healthy_check_min_disks: None,
             disk_high_watermark: None,
             disk_low_watermark: None,
-            per_disk_max_concurrency: None
+            disk_max_concurrency: None
         }
     }
 }

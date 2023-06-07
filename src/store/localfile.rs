@@ -38,6 +38,7 @@ pub struct LocalFileStore {
     local_disks: Vec<Arc<LocalDisk>>,
     partition_written_disk_map: DashMap<String, DashMap<i32, DashMap<i32, Arc<LocalDisk>>>>,
     partition_file_locks: DashMap<String, Arc<RwLock<()>>>,
+    healthy_check_min_disks: i32,
 }
 
 unsafe impl Send for LocalFileStore {}
@@ -55,6 +56,7 @@ impl LocalFileStore {
             local_disks: local_disk_instances,
             partition_written_disk_map: DashMap::new(),
             partition_file_locks: DashMap::new(),
+            healthy_check_min_disks: 1
         }
     }
 
@@ -64,7 +66,7 @@ impl LocalFileStore {
             let config = LocalDiskConfig {
                 high_watermark: localfile_config.disk_high_watermark.unwrap_or(0.8),
                 low_watermark: localfile_config.disk_low_watermark.unwrap_or(0.6),
-                max_concurrency: localfile_config.per_disk_max_concurrency.unwrap_or(40)
+                max_concurrency: localfile_config.disk_max_concurrency.unwrap_or(40)
             };
             
             local_disk_instances.push(LocalDisk::new(path, config));
@@ -73,6 +75,7 @@ impl LocalFileStore {
             local_disks: local_disk_instances,
             partition_written_disk_map: DashMap::new(),
             partition_file_locks: DashMap::new(),
+            healthy_check_min_disks: localfile_config.healthy_check_min_disks.unwrap_or(1)
         }
     }
 
@@ -135,6 +138,19 @@ impl LocalFileStore {
         }).clone();
 
         Ok(local_disk)
+    }
+
+    fn healthy_check(&self) -> Result<bool> {
+        let mut available = 0;
+        for local_disk in &self.local_disks {
+            if local_disk.is_healthy().unwrap() && local_disk.is_corrupted().unwrap() {
+                available += 1;
+            }
+        }
+
+        Ok(
+            available > self.healthy_check_min_disks
+        )
     }
 
     async fn select_disk(&self, uid: &PartitionedUId) -> Result<Arc<LocalDisk>, DatanodeError> {
@@ -317,6 +333,10 @@ impl Store for LocalFileStore {
         self.delete_app(&app_id)?;
 
         Ok(())
+    }
+
+    async fn is_healthy(&self) -> Result<bool> {
+        self.healthy_check()
     }
 }
 

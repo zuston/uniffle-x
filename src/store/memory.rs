@@ -298,6 +298,10 @@ impl Store for MemoryStore {
         self.state.remove(&app_id);
         Ok(())
     }
+
+    async fn is_healthy(&self) -> Result<bool> {
+        Ok(true)
+    }
 }
 
 

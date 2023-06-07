@@ -145,6 +145,13 @@ impl Store for HybridStore {
         self.warm_store.purge(app_id).await?;
         Ok(())
     }
+
+    async fn is_healthy(&self) -> Result<bool> {
+        Ok(
+            self.hot_store.is_healthy().await?
+                && self.warm_store.is_healthy().await?
+        )
+    }
 }
 
 #[cfg(test)]

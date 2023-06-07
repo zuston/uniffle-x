@@ -141,6 +141,7 @@ pub trait Store {
     async fn get_index(&self, ctx: ReadingIndexViewContext) -> Result<ResponseDataIndex>;
     async fn require_buffer(&self, ctx: RequireBufferContext) -> Result<(bool, i64)>;
     async fn purge(&self, app_id: String) -> Result<()>;
+    async fn is_healthy(&self) -> Result<bool>;
 }
 
 pub struct StoreProvider {}

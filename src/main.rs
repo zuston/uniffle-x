@@ -66,6 +66,7 @@ async fn schedule_coordinator_report(
             all_tags.push("ss_v4".to_string());
             all_tags.extend_from_slice(&*tags);
 
+            let healthy = app_manager.store_is_healthy().await.unwrap_or(false);
             let heartbeat_req = ShuffleServerHeartBeatRequest {
                 server_id: Some(shuffle_server_id.clone()),
                 used_memory: 0,
@@ -73,7 +74,7 @@ async fn schedule_coordinator_report(
                 available_memory: 1024 * 1024 * 1024 * 10,
                 event_num_in_flush: 0,
                 tags: all_tags,
-                is_healthy: Some(true),
+                is_healthy: Some(healthy),
                 status: 0,
                 storage_info: Default::default()
             };

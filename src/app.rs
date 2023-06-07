@@ -282,6 +282,10 @@ impl AppManager {
         app_ref
     }
 
+    pub async fn store_is_healthy(&self) -> Result<bool> {
+        self.store.is_healthy().await
+    }
+
     async fn purge_app_data(&self, app_id: String) -> Result<()> {
         let app = self.get_app(&app_id);
         if app.is_none() {
