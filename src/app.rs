@@ -258,7 +258,8 @@ impl AppManager {
         tokio::spawn(async move {
             info!("Starting purge event handler...");
             while let Ok(event) = app_manager_cloned.receiver.recv().await {
-                let purge_result = match event {
+                GAUGE_APP_NUMBER.dec();
+                let _ = match event {
                     PurgeEvent::HEART_BEAT_TIMEOUT(app_id) => {
                         info!("The app:{} data of heartbeat timeout will be purged.", &app_id);
                         app_manager_cloned.purge_app_data(app_id).await
@@ -271,11 +272,7 @@ impl AppManager {
                         info!("Partial data purge is not supported currently");
                         Ok(())
                     }
-                };
-                GAUGE_APP_NUMBER.dec();
-                if purge_result.is_err() {
-                    error!("Errors on purging data..");
-                }
+                }.map_err(|err| error!("Errors on purging data. error: {:?}", err));
             }
         });
 
