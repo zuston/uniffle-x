@@ -324,7 +324,7 @@ impl AppManager {
             info!("Starting app heartbeat checker...");
             loop {
                 // task1: find out heartbeat timeout apps
-                tokio::time::sleep(Duration::from_secs(1)).await;
+                tokio::time::sleep(Duration::from_secs(120)).await;
 
                 let current_timestamp = current_timestamp_sec();
                 for item in app_manager_ref_cloned.apps.iter() {
