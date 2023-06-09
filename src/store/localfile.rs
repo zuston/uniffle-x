@@ -518,7 +518,13 @@ impl LocalDisk {
 
     async fn delete(&self, relative_file_path: String) -> Result<()> {
         let delete_path = self.append_path(relative_file_path);
-        if tokio::fs::metadata(&delete_path).await?.is_dir() {
+        if !tokio::fs::try_exists(&delete_path).await? {
+            info!("The path:{} does not exist, ignore purging.", &delete_path);
+            return Ok(());
+        }
+
+        let metadata = tokio::fs::metadata(&delete_path).await?;
+        if metadata.is_dir() {
             tokio::fs::remove_dir_all(delete_path).await?;
         } else {
             tokio::fs::remove_file(delete_path).await?;
