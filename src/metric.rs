@@ -29,6 +29,9 @@ lazy_static! {
 
     pub static ref GAUGE_APP_NUMBER: IntGauge = IntGauge::new("app_number", "app_number").expect("metrics should be created");
     pub static ref GAUGE_PARTITION_NUMBER: IntGauge = IntGauge::new("partition_number", "partition_number").expect("metrics should be created");
+
+    pub static ref TOTAL_REQUIRE_BUFFER_FAILED: IntCounter = IntCounter::new("total_require_buffer_failed", "total_require_buffer_failed").expect("metrics should be created");
+    pub static ref TOTAL_HUGE_PARTITION_REQUIRE_BUFFER_FAILED: IntCounter = IntCounter::new("total_huge_partition_require_buffer_failed", "total_huge_partition_require_buffer_failed").expect("metrics should be created");
 }
 
 fn register_custom_metrics() {
@@ -39,6 +42,8 @@ fn register_custom_metrics() {
     REGISTRY.register(Box::new(TOTAL_MEMORY_SPILL_OPERATION_FAILED.clone())).expect("total_memory_spill_operation_failed must be registered");
     REGISTRY.register(Box::new(TOTAL_APP_NUMBER.clone())).expect("total_app_number must be registered");
     REGISTRY.register(Box::new(TOTAL_PARTITION_NUMBER.clone())).expect("total_partition_number must be registered");
+    REGISTRY.register(Box::new(TOTAL_REQUIRE_BUFFER_FAILED.clone())).expect("total_require_buffer_failed must be registered");
+    REGISTRY.register(Box::new(TOTAL_HUGE_PARTITION_REQUIRE_BUFFER_FAILED.clone())).expect("total_huge_partition_require_buffer_failed must be registered");
 
     REGISTRY.register(Box::new(GAUGE_MEMORY_USED.clone())).expect("memory_used must be registered");
     REGISTRY.register(Box::new(GAUGE_MEMORY_ALLOCATED.clone())).expect("memory_allocated must be registered");

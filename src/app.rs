@@ -22,7 +22,7 @@ use tokio::sync::RwLock;
 use tonic::codegen::ok;
 use crate::config::Config;
 use crate::error::DatanodeError;
-use crate::metric::{GAUGE_APP_NUMBER, GAUGE_PARTITION_NUMBER, TOTAL_APP_NUMBER, TOTAL_RECEIVED_DATA};
+use crate::metric::{GAUGE_APP_NUMBER, GAUGE_PARTITION_NUMBER, TOTAL_APP_NUMBER, TOTAL_HUGE_PARTITION_REQUIRE_BUFFER_FAILED, TOTAL_RECEIVED_DATA, TOTAL_REQUIRE_BUFFER_FAILED};
 use crate::proto::uniffle::ShuffleData;
 use crate::readable_size::ReadableSize;
 use crate::store;
@@ -180,6 +180,7 @@ impl App {
         let data_size = meta.get_data_size().await?;
         if data_size > *huge_partition_size && self.store.get_hot_store_memory_partitioned_buffer_size(uid).await? > *huge_partition_memory {
             info!("[{:?}] with huge partition, it has been writing speed limited", uid);
+            TOTAL_HUGE_PARTITION_REQUIRE_BUFFER_FAILED.inc();
             Ok(true)
         } else {
             Ok(false)
@@ -187,11 +188,19 @@ impl App {
     }
 
     pub async fn require_buffer(&self, ctx: RequireBufferContext) -> Result<(bool, i64)> {
-        if self.huge_partition_limit(&ctx.uid).await? {
-            Ok((false, -1))
+        let (succeed, id) = if self.huge_partition_limit(&ctx.uid).await? {
+            (false, -1)
         } else {
-            self.store.require_buffer(ctx).await
+            self.store.require_buffer(ctx).await?
+        };
+
+        if !succeed {
+            TOTAL_REQUIRE_BUFFER_FAILED.inc();
         }
+
+        Ok(
+            (succeed, id)
+        )
     }
 
     fn get_underlying_partition_bitmap(&self, uid: PartitionedUId) -> PartitionedMeta {
