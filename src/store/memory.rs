@@ -14,7 +14,7 @@ use crate::store::{DataSegment, PartitionedDataBlock, PartitionedMemoryData, Res
 use async_trait::async_trait;
 use tokio::sync::Mutex;
 use crate::config::MemoryStoreConfig;
-use crate::metric::{GAUGE_MEMORY_ALLOCATED, GAUGE_MEMORY_CAPACITY, GAUGE_MEMORY_USED};
+use crate::metric::{GAUGE_MEMORY_ALLOCATED, GAUGE_MEMORY_CAPACITY, GAUGE_MEMORY_USED, TOTAL_MEMORY_USED};
 use crate::readable_size::ReadableSize;
 
 pub struct MemoryStore {
@@ -166,6 +166,8 @@ impl Store for MemoryStore {
         let blocks = ctx.data_blocks;
         let inserted_size = buffer_guarded.add(blocks)?;
         self.budget.allocated_to_used(inserted_size).await?;
+
+        TOTAL_MEMORY_USED.inc_by(inserted_size as u64);
 
         Ok(())
     }

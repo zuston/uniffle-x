@@ -25,6 +25,7 @@ use warp::delete;
 use crate::app::ReadingOptions::FILE_OFFSET_AND_LEN;
 use crate::config::LocalfileStoreConfig;
 use crate::error::DatanodeError;
+use crate::metric::TOTAL_LOCALFILE_USED;
 use crate::store::ResponseDataIndex::local;
 use crate::util::get_crc;
 
@@ -208,15 +209,15 @@ impl Store for LocalFileStore {
         let mut index_bytes_holder = BytesMut::new();
         let mut data_bytes_holder = BytesMut::new();
 
-        let mut batch_size = 0;
+        let mut total_size = 0;
         for block in ctx.data_blocks {
-            batch_size += 1;
-
             let block_id = block.block_id;
             let length = block.length;
             let uncompress_len = block.uncompress_length;
             let task_attempt_id = block.task_attempt_id;
             let crc = block.crc;
+
+            total_size += length;
 
             index_bytes_holder.put_i64(next_offset);
             index_bytes_holder.put_i32(length);
@@ -237,7 +238,7 @@ impl Store for LocalFileStore {
         local_disk.write(data_bytes_holder.freeze(), data_file_path.clone()).await?;
         local_disk.write(index_bytes_holder.freeze(), index_file_path.clone()).await?;
 
-        debug!("flush partition: {}, batch_size: {}", pid, batch_size);
+        TOTAL_LOCALFILE_USED.inc_by(total_size as u64);
 
         Ok(())
     }

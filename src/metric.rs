@@ -22,6 +22,8 @@ lazy_static! {
     pub static ref TOTAL_MEMORY_SPILL_OPERATION: IntCounter = IntCounter::new("total_memory_spill_operation", "memory capacity").expect("metric should be created");
     pub static ref TOTAL_MEMORY_SPILL_OPERATION_FAILED: IntCounter = IntCounter::new("total_memory_spill_operation_failed", "memory capacity").expect("metric should be created");
 
+    pub static ref GAUGE_MEMORY_SPILL_OPERATION: IntGauge = IntGauge::new("memory_spill_operation", "memory spill").expect("metric should be created");
+
     pub static ref TOTAL_APP_NUMBER : IntCounter = IntCounter::new("total_app_number", "total_app_number").expect("metrics should be created");
     pub static ref TOTAL_PARTITION_NUMBER: IntCounter = IntCounter::new("total_partition_number", "total_partition_number").expect("metrics should be created");
 
@@ -43,6 +45,7 @@ fn register_custom_metrics() {
     REGISTRY.register(Box::new(GAUGE_MEMORY_CAPACITY.clone())).expect("memory_capacity must be registered");
     REGISTRY.register(Box::new(GAUGE_APP_NUMBER.clone())).expect("app_number must be registered");
     REGISTRY.register(Box::new(GAUGE_PARTITION_NUMBER.clone())).expect("partition_number must be registered");
+    REGISTRY.register(Box::new(GAUGE_MEMORY_SPILL_OPERATION.clone())).expect("memory_spill_operation must be registered");
 }
 
 async fn metrics_handler() -> Result<impl Reply, Rejection> {

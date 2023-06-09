@@ -21,7 +21,7 @@ use tokio::task::JoinHandle;
 use tracing::field::debug;
 use crate::config;
 use crate::config::{Config, HybridStoreConfig, LocalfileStoreConfig};
-use crate::metric::{TOTAL_MEMORY_SPILL_OPERATION, TOTAL_MEMORY_SPILL_OPERATION_FAILED};
+use crate::metric::{GAUGE_MEMORY_SPILL_OPERATION, TOTAL_MEMORY_SPILL_OPERATION, TOTAL_MEMORY_SPILL_OPERATION_FAILED};
 use crate::readable_size::ReadableSize;
 use crate::store::ResponseData::mem;
 
@@ -117,6 +117,7 @@ impl Store for HybridStore {
         tokio::spawn(async move {
             while let Ok(message) = store.memory_spill_recv.recv().await {
                 TOTAL_MEMORY_SPILL_OPERATION.inc();
+                GAUGE_MEMORY_SPILL_OPERATION.inc();
                 let store_cloned = store.clone();
                 tokio::spawn(async move {
                     match store_cloned.memory_spill_to_localfile(message.ctx, message.id).await {
@@ -127,6 +128,7 @@ impl Store for HybridStore {
                         }
                     }
                     store_cloned.memory_spill_event_num.dec_by(1);
+                    GAUGE_MEMORY_SPILL_OPERATION.dec();
                 });
             }
         });
