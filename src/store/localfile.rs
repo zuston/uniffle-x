@@ -17,7 +17,7 @@ use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt};
 use crate::store::{LocalDataIndex, PartitionedLocalData, ResponseData, ResponseDataIndex, Store};
 use async_trait::async_trait;
 use futures::future::err;
-use log::{debug, error, info};
+use log::{debug, error, info, warn};
 use tokio::sync::{RwLock, Semaphore};
 use tonic::codegen::ok;
 use tracing_subscriber::registry::Data;
@@ -143,11 +143,12 @@ impl LocalFileStore {
     fn healthy_check(&self) -> Result<bool> {
         let mut available = 0;
         for local_disk in &self.local_disks {
-            if local_disk.is_healthy().unwrap() && local_disk.is_corrupted().unwrap() {
+            if local_disk.is_healthy()? && !local_disk.is_corrupted()? {
                 available += 1;
             }
         }
 
+        debug!("disk: available={}, healthy_check_min={}", available, self.healthy_check_min_disks);
         Ok(
             available > self.healthy_check_min_disks
         )
@@ -443,11 +444,13 @@ impl LocalDisk {
 
             let used_ratio = used_ratio.unwrap();
             if local_disk.is_healthy().unwrap() && used_ratio > local_disk.config.high_watermark as f64 {
+                warn!("Disk={} has been unhealthy.", &local_disk.base_path);
                 local_disk.mark_unhealthy();
                 continue;
             }
 
             if !local_disk.is_healthy().unwrap() && used_ratio < local_disk.config.low_watermark as f64 {
+                warn!("Disk={} has been healthy.", &local_disk.base_path);
                 local_disk.mark_healthy();
                 continue;
             }
