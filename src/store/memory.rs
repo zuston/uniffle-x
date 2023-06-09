@@ -110,6 +110,14 @@ impl MemoryStore {
         required_spill_buffers
     }
 
+    pub async fn get_partitioned_buffer_size(&self, uid: &PartitionedUId) -> Result<u64> {
+        let buffer = self.get_underlying_partition_buffer(&uid.app_id, &uid.shuffle_id, &uid.shuffle_id);
+        let buffer = buffer.lock().await;
+        Ok(
+            buffer.total_size as u64
+        )
+    }
+
     fn get_underlying_partition_buffer(&self, app_id: &String, shuffle_id: &i32, partition_id: &i32) -> Arc<Mutex<StagingBuffer>> {
         let app_entry = self.state.get(app_id).unwrap();
         let shuffle_entry = app_entry.get(shuffle_id).unwrap();

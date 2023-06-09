@@ -80,6 +80,10 @@ impl HybridStore {
         self.hot_store.memory_snapshot().await
     }
 
+    pub async fn get_hot_store_memory_partitioned_buffer_size(&self, uid: &PartitionedUId) -> Result<u64> {
+        self.hot_store.get_partitioned_buffer_size(uid).await
+    }
+
     pub fn memory_spill_event_num(&self) -> Result<u64> {
         Ok(
             self.memory_spill_event_num.get()

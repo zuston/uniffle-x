@@ -5,7 +5,8 @@ use std::fs::read;
 use std::hash::{Hash, Hasher};
 use std::io::Read;
 use std::ops::Deref;
-use std::sync::{Arc, mpsc, Mutex, RwLock};
+use std::str::FromStr;
+use std::sync::{Arc, mpsc, Mutex};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::atomic::Ordering::AcqRel;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -17,11 +18,13 @@ use croaring::treemap::JvmSerializer;
 use dashmap::mapref::one::{Ref, RefMut};
 use log::{debug, error, info};
 use tokio::runtime::Runtime;
+use tokio::sync::RwLock;
 use tonic::codegen::ok;
 use crate::config::Config;
 use crate::error::DatanodeError;
 use crate::metric::{GAUGE_APP_NUMBER, GAUGE_PARTITION_NUMBER, TOTAL_APP_NUMBER, TOTAL_RECEIVED_DATA};
 use crate::proto::uniffle::ShuffleData;
+use crate::readable_size::ReadableSize;
 use crate::store;
 use crate::store::{PartitionedData, PartitionedDataBlock, ResponseData, ResponseDataIndex, Store, StoreProvider};
 use crate::store::hybrid::HybridStore;
@@ -42,50 +45,117 @@ struct AppConfigOptions {
     max_concurrency_per_partition_to_write: i32
 }
 
+impl Default for AppConfigOptions {
+    fn default() -> Self {
+        AppConfigOptions {
+            data_distribution: DataDistribution::LOCAL_ORDER,
+            max_concurrency_per_partition_to_write: 20
+        }
+    }
+}
+
 // =============================================================
 
-#[derive(Clone)]
 pub struct App {
-    app: Arc<AppInner>,
+    app_id: String,
+    // key: shuffleId, value: partitionIds
+    partitions: DashMap<i32, HashSet<i32>>,
+    app_config_options: Option<AppConfigOptions>,
+    latest_heartbeat_time: AtomicU64,
     store: Arc<HybridStore>,
-    bitmap_of_blocks: DashMap<i32, DashMap<i32, Arc<RwLock<Treemap>>>>
+    bitmap_of_blocks: DashMap<i32, DashMap<i32, PartitionedMeta>>,
+    huge_partition_marked_threshold: Option<u64>,
+    huge_partition_memory_max_available_size: Option<u64>
+}
+
+#[derive(Clone)]
+struct PartitionedMeta {
+    inner: Arc<RwLock<PartitionedMetaInner>>
+}
+
+struct PartitionedMetaInner {
+    blocks_bitmap: Treemap,
+    total_size: u64,
+}
+
+impl PartitionedMeta {
+    fn new() -> Self {
+        PartitionedMeta {
+            inner: Arc::new(RwLock::new(PartitionedMetaInner {
+                blocks_bitmap: Treemap::default(),
+                total_size: 0
+            })),
+        }
+    }
+
+    async fn get_data_size(&self) -> Result<u64> {
+        let meta = self.inner.read().await;
+        Ok(
+            meta.total_size
+        )
+    }
+
+    async fn incr_data_size(&mut self, data_size: i32) -> Result<()> {
+        let mut meta = self.inner.write().await;
+        meta.total_size += data_size as u64;
+        Ok(())
+    }
+
+    async fn get_block_ids_bytes(&self) -> Result<Bytes> {
+        let meta = self.inner.read().await;
+        let serialized_data = meta.blocks_bitmap.serialize()?;
+        Ok(
+            Bytes::from(serialized_data)
+        )
+    }
+
+    async fn report_block_ids(&mut self, ids: Vec<i64>) -> Result<()> {
+        let mut meta = self.inner.write().await;
+        for id in ids {
+            meta.blocks_bitmap.add(id as u64);
+        }
+        Ok(())
+    }
 }
 
 impl App {
-    fn from(app_id: String, config_options: Option<AppConfigOptions>, store: Arc<HybridStore>) -> Self {
+    fn from(app_id: String,
+            config_options: Option<AppConfigOptions>,
+            store: Arc<HybridStore>,
+            huge_partition_marked_threshold: Option<u64>,
+            huge_partition_memory_max_available_size: Option<u64>) -> Self {
         App {
-            app: Arc::new(
-                AppInner {
-                    app_id,
-                    partitions: DashMap::new(),
-                    app_config_options: config_options,
-                    latest_heartbeat_time: AtomicU64::new(current_timestamp_sec())
-                },
-            ),
+            app_id,
+            partitions: DashMap::new(),
+            app_config_options: config_options,
+            latest_heartbeat_time: AtomicU64::new(current_timestamp_sec()),
             store,
-            bitmap_of_blocks: DashMap::new()
+            bitmap_of_blocks: DashMap::new(),
+            huge_partition_marked_threshold,
+            huge_partition_memory_max_available_size,
         }
     }
 
     fn get_latest_heartbeat_time(&self) -> u64 {
-        self.app.latest_heartbeat_time.load(Ordering::SeqCst)
+        self.latest_heartbeat_time.load(Ordering::SeqCst)
     }
 
     pub fn heartbeat(&self) -> Result<()> {
         let timestamp = current_timestamp_sec();
-        self.app.latest_heartbeat_time.swap(timestamp, Ordering::SeqCst);
+        self.latest_heartbeat_time.swap(timestamp, Ordering::SeqCst);
         Ok(())
     }
 
     pub fn register_shuffle(&self, shuffle_id: i32) -> Result<()> {
-        self.app.partitions.entry(shuffle_id).or_insert_with(||HashSet::new());
+        self.partitions.entry(shuffle_id).or_insert_with(||HashSet::new());
         Ok(())
     }
 
     pub async fn insert(&self, ctx: WritingViewContext) -> Result<()> {
         let len: i32 = ctx.data_blocks.iter().map(|block| block.length).sum();
+        self.get_underlying_partition_bitmap(ctx.uid.clone()).incr_data_size(len);
         TOTAL_RECEIVED_DATA.inc_by(len as u64);
-        
+
         self.store.insert(ctx).await
     }
 
@@ -97,38 +167,52 @@ impl App {
         self.store.get_index(ctx).await
     }
 
-    pub async fn require_buffer(&self, ctx: RequireBufferContext) -> Result<(bool, i64)> {
-        self.store.require_buffer(ctx).await
+    async fn huge_partition_limit(&self, uid: &PartitionedUId) -> Result<bool> {
+        let huge_partition_threshold = &self.huge_partition_marked_threshold;
+        let huge_partition_memory_used = &self.huge_partition_memory_max_available_size;
+        if huge_partition_threshold.is_none() || huge_partition_memory_used.is_none() {
+            return Ok(false);
+        }
+        let huge_partition_size = &huge_partition_threshold.unwrap();
+        let huge_partition_memory = &huge_partition_memory_used.unwrap();
+
+        let meta = self.get_underlying_partition_bitmap(uid.clone());
+        let data_size = meta.get_data_size().await?;
+        if data_size > *huge_partition_size && self.store.get_hot_store_memory_partitioned_buffer_size(uid).await? > *huge_partition_memory {
+            info!("[{:?}] with huge partition, it has been writing speed limited", uid);
+            Ok(true)
+        } else {
+            Ok(false)
+        }
     }
 
-    fn get_underlying_partition_bitmap(&self, uid: PartitionedUId) -> Arc<RwLock<Treemap>> {
+    pub async fn require_buffer(&self, ctx: RequireBufferContext) -> Result<(bool, i64)> {
+        if self.huge_partition_limit(&ctx.uid).await? {
+            Ok((false, -1))
+        } else {
+            self.store.require_buffer(ctx).await
+        }
+    }
+
+    fn get_underlying_partition_bitmap(&self, uid: PartitionedUId) -> PartitionedMeta {
         let shuffle_id = uid.shuffle_id;
         let partition_id = uid.partition_id;
         let shuffle_entry = self.bitmap_of_blocks.entry(shuffle_id).or_insert_with(||DashMap::new());
-        let mut partition_bitmap = shuffle_entry.entry(partition_id).or_insert_with(||Arc::new(RwLock::new(Treemap::create())));
+        let mut partitioned_meta = shuffle_entry.entry(partition_id).or_insert_with(||PartitionedMeta::new());
 
-        partition_bitmap.clone()
+        partitioned_meta.clone()
     }
 
     pub async fn get_block_ids(&self, ctx: GetBlocksContext) -> Result<Bytes> {
         debug!("get blocks: {:?}", ctx.clone());
-        let mut partition_bitmap = self.get_underlying_partition_bitmap(ctx.uid);
-        let partition_bitmap = partition_bitmap.read().unwrap();
-
-        let serialized_data = partition_bitmap.serialize()?;
-        Ok(
-            Bytes::from(serialized_data)
-        )
+        let partitioned_meta = self.get_underlying_partition_bitmap(ctx.uid);
+        partitioned_meta.get_block_ids_bytes().await
     }
 
     pub async fn report_block_ids(&self, ctx: ReportBlocksContext) -> Result<()> {
         debug!("Report blocks: {:?}", ctx.clone());
-        let mut partition_bitmap_wrapper = self.get_underlying_partition_bitmap(ctx.uid);
-        let mut partition_bitmap = partition_bitmap_wrapper.write().unwrap();
-
-        for block_id in ctx.blocks {
-            partition_bitmap.add(block_id as u64);
-        }
+        let mut partitioned_meta = self.get_underlying_partition_bitmap(ctx.uid);
+        partitioned_meta.report_block_ids(ctx.blocks).await?;
 
         Ok(())
     }
@@ -153,15 +237,6 @@ pub struct ReportBlocksContext {
 #[derive(Debug, Clone)]
 pub struct GetBlocksContext {
     pub(crate) uid: PartitionedUId,
-}
-
-#[derive(Debug)]
-pub struct AppInner {
-    app_id: String,
-    // key: shuffleId, value: partitionIds
-    partitions: DashMap<i32, HashSet<i32>>,
-    app_config_options: Option<AppConfigOptions>,
-    latest_heartbeat_time: AtomicU64
 }
 
 #[derive(Debug, Clone)]
@@ -209,21 +284,23 @@ pub struct AppManager {
     receiver: async_channel::Receiver<PurgeEvent>,
     sender: async_channel::Sender<PurgeEvent>,
     store: Arc<HybridStore>,
-    app_heartbeat_timeout_min: u32
+    app_heartbeat_timeout_min: u32,
+    config: Config
 }
 
 impl AppManager {
     fn new(config: Config) -> Self {
         let (sender, receiver) = async_channel::unbounded();
         let app_heartbeat_timeout_min = config.app_heartbeat_timeout_min.unwrap_or(10);
-        let store = Arc::new(StoreProvider::get(config));
+        let store = Arc::new(StoreProvider::get(config.clone()));
         store.clone().start();
         let manager = AppManager {
             apps: DashMap::new(),
             receiver,
             sender,
             store,
-            app_heartbeat_timeout_min
+            app_heartbeat_timeout_min,
+            config
         };
         manager
     }
@@ -314,7 +391,23 @@ impl AppManager {
         let mut appRef = self.apps.entry(app_id.clone()).or_insert_with(|| {
             TOTAL_APP_NUMBER.inc();
             GAUGE_APP_NUMBER.inc();
-            Arc::new(App::from(app_id, None, self.store.clone()))
+
+            let capacity = ReadableSize::from_str(&self.config.memory_store.clone().unwrap().capacity).unwrap().as_bytes();
+            let huge_partition_max_available_size = Some((self.config.huge_partition_memory_max_used_percent.unwrap_or(1.0) * capacity as f64) as u64);
+
+            let threshold = match &self.config.huge_partition_marked_threshold {
+                Some(v) => Some(ReadableSize::from_str(v.clone().as_str()).unwrap().as_bytes()),
+                _ => None
+            };
+
+            Arc::new(
+                App::from(app_id,
+                          Some(AppConfigOptions::default()),
+                          self.store.clone(),
+                          threshold,
+                    huge_partition_max_available_size
+                )
+            )
         });
         appRef.register_shuffle(shuffle_id)
     }
@@ -455,7 +548,7 @@ mod test {
         let appManagerRef = AppManager::get_ref(mock_config()).clone();
         appManagerRef.register("app_id".into(), 1).unwrap();
         if let Some(app) = appManagerRef.get_app("app_id".into()) {
-            assert_eq!("app_id", app.app.app_id);
+            assert_eq!("app_id", app.app_id);
         }
     }
 

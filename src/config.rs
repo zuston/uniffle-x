@@ -65,7 +65,10 @@ pub struct Config {
 
     pub log: Option<LogConfig>,
 
-    pub app_heartbeat_timeout_min: Option<u32>
+    pub app_heartbeat_timeout_min: Option<u32>,
+
+    pub huge_partition_marked_threshold: Option<String>,
+    pub huge_partition_memory_max_used_percent: Option<f64>,
 }
 
 // =========================================================
