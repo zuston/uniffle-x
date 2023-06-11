@@ -313,14 +313,16 @@ impl Store for LocalFileStore {
             return Ok(());
         }
 
-        for (shuffle_id, partition_id) in all_partition_ids.into_iter() {
-            // delete app dir
-            let local_disk_option = self.get_owned_disk(PartitionedUId::from(app_id.clone(), shuffle_id, partition_id));
-            if local_disk_option.is_some() {
-                let local_disk = local_disk_option.unwrap();
-                local_disk.delete(app_relative_dir_path.clone()).await?;
-            }
+        let (shuffle_id, partition_id) = all_partition_ids.get(0).ok_or(DatanodeError::INTERNAL_ERROR)?;
 
+        // delete app dir
+        let local_disk_option = self.get_owned_disk(PartitionedUId::from(app_id.clone(), *shuffle_id, *partition_id));
+        if local_disk_option.is_some() {
+            let local_disk = local_disk_option.unwrap();
+            local_disk.delete(app_relative_dir_path.clone()).await?;
+        }
+
+        for (shuffle_id, partition_id) in all_partition_ids.into_iter() {
             // delete lock
             let uid = PartitionedUId {
                 app_id: app_id.clone(),
@@ -567,10 +569,61 @@ mod test {
     use std::time::Duration;
     use bytes::{Buf, Bytes, BytesMut};
     use log::info;
-    use tracing_subscriber::fmt::time;
+    use tracing_subscriber::fmt::{format, time};
     use crate::app::{PartitionedUId, ReadingIndexViewContext, ReadingOptions, ReadingViewContext, WritingViewContext};
     use crate::store::localfile::{LocalDisk, LocalDiskConfig, LocalFileStore};
     use crate::store::{PartitionedDataBlock, ResponseData, ResponseDataIndex, Store};
+    use crate::store::ResponseDataIndex::local;
+
+    #[tokio::test]
+    async fn purge_test() -> anyhow::Result<()> {
+        let temp_dir = tempdir::TempDir::new("test_local_store").unwrap();
+        let temp_path = temp_dir.path().to_str().unwrap().to_string();
+        println!("init local file path: {}", &temp_path);
+        let mut local_store = LocalFileStore::new(vec![temp_path.clone()]);
+
+        let app_id = "purge_test-app-id".to_string();
+        let uid = PartitionedUId {
+            app_id: app_id.clone(),
+            shuffle_id: 0,
+            partition_id: 0
+        };
+
+        let data = b"hello world!hello china!";
+        let size = data.len();
+        let writingCtx = WritingViewContext {
+            uid: uid.clone(),
+            data_blocks: vec![
+                PartitionedDataBlock {
+                    block_id: 0,
+                    length: size as i32,
+                    uncompress_length: 200,
+                    crc: 0,
+                    data: Bytes::copy_from_slice(data),
+                    task_attempt_id: 0
+                },
+                PartitionedDataBlock {
+                    block_id: 1,
+                    length: size as i32,
+                    uncompress_length: 200,
+                    crc: 0,
+                    data: Bytes::copy_from_slice(data),
+                    task_attempt_id: 0
+                }
+            ]
+        };
+
+        let insert_result = local_store.insert(writingCtx).await;
+        if insert_result.is_err() {
+            println!("{:?}", insert_result.err());
+            panic!()
+        }
+        assert_eq!(true, tokio::fs::try_exists(format!("{}/{}/{}/partition-{}.data", &temp_path, &app_id, "0", "0")).await?);
+        local_store.purge(app_id.clone()).await?;
+        assert_eq!(false, tokio::fs::try_exists(format!("{}/{}", &temp_path, &app_id)).await?);
+
+        Ok(())
+    }
 
     #[tokio::test]
     async fn local_store_test() {
