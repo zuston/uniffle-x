@@ -152,7 +152,7 @@ impl Store for HybridStore {
             match ReadableSize::from_str(max_spill_size.clone().unwrap().as_str()) {
                 Ok(size) => {
                     if size.as_bytes() < buffer_inner.get_staging_size()? as u64 {
-                        self.make_memory_buffer_flush(&mut buffer_inner, uid.clone());
+                        self.make_memory_buffer_flush(&mut buffer_inner, uid.clone()).await?;
                     }
                 },
                 _ => {}
@@ -210,16 +210,17 @@ mod tests {
     use std::sync::Arc;
     use std::thread;
     use std::time::Duration;
-    use bytes::{Buf, Bytes};
+    use bytes::{Buf, Bytes, BytesMut};
     use log::info;
     use tokio::time;
     use crate::app::{PartitionedUId, ReadingIndexViewContext, ReadingOptions, ReadingViewContext, RequireBufferContext, WritingViewContext};
+    use crate::app::ReadingOptions::{FILE_OFFSET_AND_LEN, MEMORY_LAST_BLOCK_ID_AND_MAX_SIZE};
     use crate::config::{Config, HybridStoreConfig, LocalfileStoreConfig, MemoryStoreConfig, StorageType};
     use crate::store::hybrid::HybridStore;
     use crate::store::{PartitionedDataBlock, ResponseData, ResponseDataIndex, Store};
-    use crate::store::ResponseData::mem;
+    use crate::store::ResponseData::{local, mem};
 
-    fn start_store() -> Arc<HybridStore> {
+    fn start_store(memory_single_buffer_max_spill_size: Option<String>, memory_capacity: String) -> Arc<HybridStore> {
         let data = b"hello world!";
         let data_len = data.len();
 
@@ -229,7 +230,7 @@ mod tests {
 
         let mut config = Config::default();
         config.memory_store=Some(MemoryStoreConfig {
-            capacity: ((data_len * 1) as i64).to_string()
+            capacity: memory_capacity
         });
         config.localfile_store = Some(LocalfileStoreConfig::new(
             vec![temp_path]
@@ -237,7 +238,7 @@ mod tests {
         config.hybrid_store = Some(HybridStoreConfig {
             memory_spill_high_watermark: 0.8,
             memory_spill_low_watermark: 0.2,
-            memory_single_buffer_max_spill_size: None
+            memory_single_buffer_max_spill_size
         });
         config.store_type = Some(StorageType::MEMORY_LOCALFILE);
 
@@ -248,8 +249,10 @@ mod tests {
         store
     }
 
-    async fn write_some_data(store: Arc<HybridStore>, uid: PartitionedUId, data_len: i32, data: &[u8; 12]) {
-        for i in 0..=3 {
+    async fn write_some_data(store: Arc<HybridStore>, uid: PartitionedUId, data_len: i32, data: &[u8; 12], batch_size: i64) -> Vec<i64> {
+        let mut block_ids = vec![];
+        for i in 0..batch_size {
+            block_ids.push(i);
             let writingCtx = WritingViewContext {
                 uid: uid.clone(),
                 data_blocks: vec![
@@ -265,14 +268,16 @@ mod tests {
             };
             let _ = store.insert(writingCtx).await;
         }
+
+        block_ids
     }
 
     #[tokio::test]
-    async fn get_data_from_localfile() {
+    async fn single_buffer_spill_test() -> anyhow::Result<()> {
         let data = b"hello world!";
         let data_len = data.len();
 
-        let mut store = start_store();
+        let mut store = start_store(Some("1".to_string()), ((data_len * 10000) as i64).to_string());
         store.clone().start();
 
         let uid = PartitionedUId {
@@ -280,7 +285,66 @@ mod tests {
             shuffle_id: 0,
             partition_id: 0
         };
-        write_some_data(store.clone(), uid.clone(), data_len as i32, data).await;
+        let expected_block_ids = write_some_data(store.clone(), uid.clone(), data_len as i32, data, 100).await;
+        tokio::time::sleep(Duration::from_secs(1)).await;
+
+        // read from memory and then from localfile
+        let response_data = store.get(ReadingViewContext {
+            uid: uid.clone(),
+            reading_options: MEMORY_LAST_BLOCK_ID_AND_MAX_SIZE(-1, 1024 * 1024 * 1024)
+        }).await?;
+
+        let mut accepted_block_ids = vec![];
+        for segment in response_data.from_memory().shuffle_data_block_segments {
+            accepted_block_ids.push(segment.block_id);
+        }
+        
+        let local_index_data = store.get_index(ReadingIndexViewContext {
+            partition_id: uid.clone()
+        }).await?;
+
+        match local_index_data {
+            ResponseDataIndex::local(index) => {
+                let mut index_bytes = index.index_data;
+                while index_bytes.has_remaining() {
+                    // index_bytes_holder.put_i64(next_offset);
+                    // index_bytes_holder.put_i32(length);
+                    // index_bytes_holder.put_i32(uncompress_len);
+                    // index_bytes_holder.put_i64(crc);
+                    // index_bytes_holder.put_i64(block_id);
+                    // index_bytes_holder.put_i64(task_attempt_id);
+                    index_bytes.get_i64();
+                    index_bytes.get_i32();
+                    index_bytes.get_i32();
+                    index_bytes.get_i64();
+                    let id = index_bytes.get_i64();
+                    index_bytes.get_i64();
+
+                    accepted_block_ids.push(id);
+                }
+            },
+            _ => panic!("")
+        }
+
+        assert_eq!(accepted_block_ids, expected_block_ids);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn get_data_from_localfile() {
+        let data = b"hello world!";
+        let data_len = data.len();
+
+        let mut store = start_store(None, ((data_len * 1) as i64).to_string());
+        store.clone().start();
+
+        let uid = PartitionedUId {
+            app_id: "1000".to_string(),
+            shuffle_id: 0,
+            partition_id: 0
+        };
+        write_some_data(store.clone(), uid.clone(), data_len as i32, data, 4).await;
         tokio::time::sleep(Duration::from_secs(1)).await;
 
         // case1: all data has been flushed to localfile. the data in memory should be empty
@@ -341,14 +405,14 @@ mod tests {
         let data = b"hello world!";
         let data_len = data.len();
 
-        let mut store = start_store();
+        let mut store = start_store(None, ((data_len * 1) as i64).to_string());
 
         let uid = PartitionedUId {
             app_id: "1000".to_string(),
             shuffle_id: 0,
             partition_id: 0
         };
-        write_some_data(store.clone(), uid.clone(), data_len as i32, data).await;
+        write_some_data(store.clone(), uid.clone(), data_len as i32, data, 4).await;
         let mut last_block_id = -1;
         // read data one by one
         for idx in 0..=10 {

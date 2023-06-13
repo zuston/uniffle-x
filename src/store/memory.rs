@@ -350,6 +350,7 @@ impl StagingBuffer {
             added += block.length as i64;
             self.staging.push(block);
         }
+        self.staging_size += added;
         self.total_size += added;
         Ok(added)
     }
