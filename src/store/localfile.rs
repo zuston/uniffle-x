@@ -251,6 +251,7 @@ impl Store for LocalFileStore {
         };
 
         if len == 0 {
+            warn!("There is no data in localfile for [{:?}]", &uid);
             return Ok(ResponseData::local(PartitionedLocalData {
                 data: Default::default()
             }))
@@ -263,6 +264,7 @@ impl Store for LocalFileStore {
         let local_disk: Option<Arc<LocalDisk>> = self.get_owned_disk(uid.clone());
 
         if local_disk.is_none() {
+            warn!("This should not happen of local disk not found for [{:?}]", &uid);
             return Ok(ResponseData::local(PartitionedLocalData {
                 data: Default::default()
             }))
@@ -285,7 +287,8 @@ impl Store for LocalFileStore {
         let local_disk: Option<Arc<LocalDisk>> = self.get_owned_disk(uid.clone());
 
         if local_disk.is_none() {
-            return Ok(ResponseDataIndex::local(LocalDataIndex {
+            warn!("This should not happen of local disk not found for [{:?}]", &uid);
+            return Ok(local(LocalDataIndex {
                 index_data: Default::default(),
                 data_file_len: 0
             }));
@@ -295,7 +298,7 @@ impl Store for LocalFileStore {
 
         let index_data_result = local_disk.read(index_file_path, 0, None).await?;
         let len = local_disk.get_file_len(data_file_path).await?;
-        Ok(ResponseDataIndex::local(LocalDataIndex {
+        Ok(local(LocalDataIndex {
             index_data: index_data_result,
             data_file_len: len
         }))
