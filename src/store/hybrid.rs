@@ -168,7 +168,7 @@ impl Store for HybridStore {
 
             for (partition_id, buffer) in buffers {
                 let mut buffer_inner = buffer.lock().await;
-                self.make_memory_buffer_flush(&mut buffer_inner, uid.clone()).await?;
+                self.make_memory_buffer_flush(&mut buffer_inner, partition_id).await?;
             }
             debug!("Trigger spilling in background....");
         }
