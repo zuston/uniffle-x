@@ -1,7 +1,6 @@
 
 #[cfg(test)]
 mod tests {
-    use std::os::macos::raw::stat;
     use std::time::Duration;
     use datanode::proto::uniffle::shuffle_server_client::ShuffleServerClient;
     use anyhow::Result;
