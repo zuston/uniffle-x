@@ -469,8 +469,7 @@ mod test {
     use croaring::treemap::JvmSerializer;
     use dashmap::DashMap;
     use crate::app::{AppManager, GetBlocksContext, PartitionedUId, ReadingOptions, ReadingViewContext, ReportBlocksContext, WritingViewContext};
-    use crate::Config;
-    use crate::config::{HybridStoreConfig, LocalfileStoreConfig, MemoryStoreConfig};
+    use crate::config::{Config, HybridStoreConfig, LocalfileStoreConfig, MemoryStoreConfig};
     use crate::store::{PartitionedDataBlock, ResponseData};
     use crate::store::hybrid::HybridStore;
 

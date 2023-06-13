@@ -2,8 +2,7 @@ use bytes::{BufMut, BytesMut};
 use log::{debug, error, info};
 use toml::Value::String;
 use tonic::{Request, Response, Status};
-use crate::app::{GetBlocksContext, PartitionedUId, ReadingIndexViewContext, ReadingOptions, ReadingViewContext, ReportBlocksContext, RequireBufferContext, WritingViewContext};
-use crate::{AppManagerRef, StatusCode};
+use crate::app::{AppManagerRef, GetBlocksContext, PartitionedUId, ReadingIndexViewContext, ReadingOptions, ReadingViewContext, ReportBlocksContext, RequireBufferContext, WritingViewContext};
 use crate::proto::uniffle::shuffle_server_server::ShuffleServer;
 use crate::proto::uniffle::{AppHeartBeatRequest, AppHeartBeatResponse, FinishShuffleRequest, FinishShuffleResponse, GetLocalShuffleDataRequest, GetLocalShuffleDataResponse, GetLocalShuffleIndexRequest, GetLocalShuffleIndexResponse, GetMemoryShuffleDataRequest, GetMemoryShuffleDataResponse, GetShuffleResultForMultiPartRequest, GetShuffleResultForMultiPartResponse, GetShuffleResultRequest, GetShuffleResultResponse, ReportShuffleResultRequest, ReportShuffleResultResponse, RequireBufferRequest, RequireBufferResponse, SendShuffleDataRequest, SendShuffleDataResponse, ShuffleCommitRequest, ShuffleCommitResponse, ShuffleRegisterRequest, ShuffleRegisterResponse, ShuffleUnregisterRequest, ShuffleUnregisterResponse};
 use crate::proto::uniffle::coordinator_server_server::CoordinatorServer;
@@ -58,7 +57,7 @@ impl ShuffleServer for DefaultShuffleServer {
             return Ok(
                 Response::new(SendShuffleDataResponse {
                     status: 1,
-                    ret_msg: "".to_string()
+                    ret_msg: "The app is not found".to_string()
                 })
             );
         }
