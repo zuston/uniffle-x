@@ -200,7 +200,7 @@ impl Store for LocalFileStore {
         let lock_guard = lock_cloned.write().await;
 
         // resort the blocks by task_attempt_id to support local order
-        ctx.data_blocks.sort_by_key(|block| block.task_attempt_id);
+        // ctx.data_blocks.sort_by_key(|block| block.task_attempt_id);
 
         // write index file and data file
         // todo: split multiple pieces
@@ -210,7 +210,8 @@ impl Store for LocalFileStore {
         let mut data_bytes_holder = BytesMut::new();
 
         let mut total_size = 0;
-        for block in ctx.data_blocks {
+        let blocks = ctx.data_blocks;
+        for block in blocks.iter() {
             let block_id = block.block_id;
             let length = block.length;
             let uncompress_len = block.uncompress_length;
@@ -226,12 +227,12 @@ impl Store for LocalFileStore {
             index_bytes_holder.put_i64(block_id);
             index_bytes_holder.put_i64(task_attempt_id);
 
-            let data = block.data;
+            let data = &block.data;
             // if get_crc(&data) != crc {
             //     error!("The crc value is not the same. partition id: {}, block id: {}", pid, block_id);
             // }
 
-            data_bytes_holder.extend_from_slice(&data);
+            data_bytes_holder.extend_from_slice(data);
             next_offset += length as i64;
         }
 

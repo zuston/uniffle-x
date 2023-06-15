@@ -172,7 +172,7 @@ impl Store for MemoryStore {
         let mut buffer_guarded = buffer.lock().await;
 
         let blocks = ctx.data_blocks;
-        let inserted_size = buffer_guarded.add(blocks)?;
+        let inserted_size = buffer_guarded.add(blocks.to_vec())?;
         self.budget.allocated_to_used(inserted_size).await?;
 
         TOTAL_MEMORY_USED.inc_by(inserted_size as u64);
@@ -191,7 +191,7 @@ impl Store for MemoryStore {
                 let mut last_block_id = last_block_id.clone();
                 let mut in_flight_flatten_blocks = vec![];
                 for (_, blocks) in buffer.in_flight.iter() {
-                    for in_flight_block in blocks {
+                    for in_flight_block in blocks.iter() {
                         in_flight_flatten_blocks.push(in_flight_block);
                     }
                 }
@@ -211,8 +211,8 @@ impl Store for MemoryStore {
                     if last_block_id == -1 {
                         // Anyway, it will always read from in_flight to staging
                         let mut extends: Vec<&PartitionedDataBlock> = vec![];
-                        extends.extend_from_slice(&*in_flight_flatten_blocks);
-                        extends.extend_from_slice(&*staging_blocks);
+                        extends.extend_from_slice(&in_flight_flatten_blocks);
+                        extends.extend_from_slice(&staging_blocks);
                         candidate_blocks = extends;
                     } else {
                         // check whether the in_fight_blocks exist the last_block_id
@@ -379,7 +379,7 @@ impl StagingBuffer {
 
         let mut removed_size = 0i64;
         if let Some(removed_blocks) = done {
-            for removed_block in removed_blocks {
+            for removed_block in removed_blocks.iter() {
                 removed_size += removed_block.length as i64;
             }
         }

@@ -63,7 +63,7 @@ impl HybridStore {
         let uid = ctx.uid.clone();
         let blocks = &ctx.data_blocks;
         let mut spill_size = 0i64;
-        for block in blocks {
+        for block in blocks.iter() {
             spill_size += block.length as i64;
         }
 
