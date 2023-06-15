@@ -114,10 +114,13 @@ fn init_log(log: &LogConfig) -> WorkerGuard {
         .with_line_number(true)
         .with_writer(non_blocking);
 
+    let console_layer = console_subscriber::spawn();
+
     Registry::default()
         .with(env_filter)
         .with(formatting_layer)
         .with(file_layer)
+        .with(console_layer)
         .init();
 
     // Note: _guard is a WorkerGuard which is returned by tracing_appender::non_blocking to

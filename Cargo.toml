@@ -19,10 +19,12 @@ tokio = { version = "1.28.2", features = ["full" ] }
 tokio-rustls = "0.22"
 tokio-stream = { version = "0.1", features = ["sync"] }
 tokio-util = { version = "0.6", features = ["compat"]}
+tokio-console = "0.1.8"
 toml = "0.7.4"
 tracing = "0.1"
 tracing-appender = "0.2"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+console-subscriber = "0.1.9"
 tonic = "0.9.1"
 prost = "0.11.8"
 bytes = "1"
