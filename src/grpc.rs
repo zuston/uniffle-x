@@ -1,3 +1,4 @@
+use std::sync::Arc;
 use bytes::{BufMut, BytesMut};
 use log::{debug, error, info};
 use toml::Value::String;
@@ -74,7 +75,7 @@ impl ShuffleServer for DefaultShuffleServer {
                     shuffle_id,
                     partition_id: data.partitionId
                 },
-                data_blocks: partitioned_blocks
+                data_blocks: Arc::new(partitioned_blocks)
             };
 
             match app.insert(ctx).await {

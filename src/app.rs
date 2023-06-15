@@ -251,7 +251,7 @@ pub struct GetBlocksContext {
 #[derive(Debug, Clone)]
 pub struct WritingViewContext {
     pub uid: PartitionedUId,
-    pub data_blocks: Vec<PartitionedDataBlock>
+    pub data_blocks: Arc<Vec<PartitionedDataBlock>>
 }
 
 pub struct ReadingViewContext {
@@ -508,7 +508,7 @@ mod test {
                     shuffle_id: 1,
                     partition_id: 0
                 },
-                data_blocks: vec![
+                data_blocks: Arc::new(vec![
                     PartitionedDataBlock {
                         block_id: 0,
                         length: 10,
@@ -525,7 +525,7 @@ mod test {
                         data: Default::default(),
                         task_attempt_id: 0
                     }
-                ]
+                ])
             };
             let result = app.insert(writingCtx);
             if result.await.is_err() {

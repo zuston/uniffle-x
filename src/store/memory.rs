@@ -327,7 +327,7 @@ pub struct StagingBuffer {
     staging_size: i64,
     in_flight_size: i64,
     staging: Vec<PartitionedDataBlock>,
-    in_flight: BTreeMap<i64, Vec<PartitionedDataBlock>>,
+    in_flight: BTreeMap<i64, Arc<Vec<PartitionedDataBlock>>>,
     id_generator: i64
 }
 
@@ -356,11 +356,12 @@ impl StagingBuffer {
     }
 
     /// make the blocks sent to persistent storage
-    pub fn migrate_staging_to_in_flight(&mut self) -> Result<(i64, Vec<PartitionedDataBlock>)> {
+    pub fn migrate_staging_to_in_flight(&mut self) -> Result<(i64, Arc<Vec<PartitionedDataBlock>>)> {
         self.in_flight_size += self.staging_size;
         self.staging_size = 0;
 
         let blocks = self.staging.to_owned();
+        let blocks = Arc::new(blocks);
         self.staging.clear();
 
         let id = self.id_generator;
@@ -530,6 +531,7 @@ mod test {
     use std::borrow::Borrow;
     use std::collections::BTreeMap;
     use std::io::Read;
+    use std::sync::Arc;
     use async_trait::async_trait;
     use bytes::{Bytes, BytesMut};
     use dashmap::DashMap;
@@ -650,7 +652,7 @@ mod test {
         }
         WritingViewContext {
             uid,
-            data_blocks
+            data_blocks: Arc::new(data_blocks)
         }
     }
 
@@ -685,7 +687,7 @@ mod test {
         let mut store = MemoryStore::new(1024 * 1024 * 1024);
         let writingCtx = WritingViewContext {
             uid: Default::default(),
-            data_blocks: vec![
+            data_blocks: Arc::new(vec![
                 PartitionedDataBlock {
                     block_id: 0,
                     length: 10,
@@ -702,7 +704,7 @@ mod test {
                     data: Default::default(),
                     task_attempt_id: 1
                 }
-            ]
+            ])
         };
         store.insert(writingCtx).await.unwrap();
 

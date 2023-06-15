@@ -114,7 +114,8 @@ fn init_log(log: &LogConfig) -> WorkerGuard {
         .with_line_number(true)
         .with_writer(non_blocking);
 
-    let console_layer = console_subscriber::spawn();
+    let console_layer = console_subscriber::Builder::default()
+        .server_addr((Ipv4Addr::new(0, 0, 0, 0), 1234)).spawn();
 
     Registry::default()
         .with(env_filter)

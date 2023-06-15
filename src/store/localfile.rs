@@ -484,7 +484,7 @@ impl LocalDisk {
         debug!("data file: {}", absolute_path.clone());
 
         let mut output_file= OpenOptions::new().append(true).create(true).open(absolute_path).await?;
-        output_file.write_all(data.as_ref()).await?;
+        output_file.write_all(&data).await?;
         output_file.flush().await?;
 
         Ok(())
@@ -569,6 +569,7 @@ impl LocalDisk {
 mod test {
     use std::fs::read;
     use std::io::Read;
+    use std::sync::Arc;
     use std::time::Duration;
     use bytes::{Buf, Bytes, BytesMut};
     use log::info;
@@ -596,7 +597,7 @@ mod test {
         let size = data.len();
         let writingCtx = WritingViewContext {
             uid: uid.clone(),
-            data_blocks: vec![
+            data_blocks: Arc::new(vec![
                 PartitionedDataBlock {
                     block_id: 0,
                     length: size as i32,
@@ -613,7 +614,7 @@ mod test {
                     data: Bytes::copy_from_slice(data),
                     task_attempt_id: 0
                 }
-            ]
+            ])
         };
 
         let insert_result = local_store.insert(writingCtx).await;
@@ -645,7 +646,7 @@ mod test {
         let size = data.len();
         let writingCtx = WritingViewContext {
             uid: uid.clone(),
-            data_blocks: vec![
+            data_blocks: Arc::new(vec![
                 PartitionedDataBlock {
                     block_id: 0,
                     length: size as i32,
@@ -662,7 +663,7 @@ mod test {
                     data: Bytes::copy_from_slice(data),
                     task_attempt_id: 0
                 }
-            ]
+            ])
         };
 
         let insert_result = local_store.insert(writingCtx).await;

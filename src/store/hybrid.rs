@@ -255,7 +255,7 @@ mod tests {
             block_ids.push(i);
             let writingCtx = WritingViewContext {
                 uid: uid.clone(),
-                data_blocks: vec![
+                data_blocks: Arc::new(vec![
                     PartitionedDataBlock {
                         block_id: i,
                         length: data_len as i32,
@@ -264,7 +264,7 @@ mod tests {
                         data: Bytes::copy_from_slice(data),
                         task_attempt_id: 0
                     }
-                ]
+                ])
             };
             let _ = store.insert(writingCtx).await;
         }
