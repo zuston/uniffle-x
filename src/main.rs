@@ -34,6 +34,27 @@ mod metric;
 mod util;
 mod readable_size;
 
+use jemallocator;
+use jemalloc_ctl::{AsName, Access};
+use std::collections::HashMap;
+
+#[global_allocator]
+static ALLOC: jemallocator::Jemalloc = jemallocator::Jemalloc;
+
+const PROF_ACTIVE: &'static [u8] = b"prof.active\0";
+const PROF_DUMP: &'static [u8] = b"prof.dump\0";
+const PROFILE_OUTPUT: &'static [u8] = b"profile.out\0";
+
+fn set_prof_active(active: bool) {
+    let name = PROF_ACTIVE.name();
+    name.write(active).expect("Should succeed to set prof");
+}
+
+fn dump_profile() {
+    let name = PROF_DUMP.name();
+    name.write(PROFILE_OUTPUT).expect("Should succeed to dump profile")
+}
+
 const DEFAULT_SHUFFLE_SERVER_TAG: &str = "ss_v4";
 
 async fn schedule_coordinator_report(
@@ -133,6 +154,8 @@ fn gen_datanode_uid(grpc_port: i32) -> String {
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    set_prof_active(true);
+
     let config = Config::create_from_env();
 
     // init log
@@ -164,6 +187,8 @@ async fn main() -> Result<()> {
         .serve(addr)
         .await?;
 
+    set_prof_active(false);
+    dump_profile();
     Ok(())
 }
 
