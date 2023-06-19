@@ -28,6 +28,7 @@ mod tests {
                 memory_spill_low_watermark: 0.5,
                 memory_single_buffer_max_spill_size: None
             }),
+            hdfs_store: None,
             store_type: Some(StorageType::MEMORY_LOCALFILE),
             metrics: None,
             grpc_port: Some(grpc_port),
