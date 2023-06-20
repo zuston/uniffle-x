@@ -12,6 +12,7 @@ use opendal::services::Hdfs;
 use tokio::sync::Mutex;
 use crate::config::HdfsStoreConfig;
 use url::{Url, ParseError};
+use url::form_urlencoded::parse;
 
 pub struct HdfsStore {
     basic_path: String,
@@ -77,6 +78,11 @@ impl Store for HdfsStore {
         let lock_cloned = self.partition_file_locks.entry(data_file_path.clone()).or_insert_with(|| Arc::new(Mutex::new(()))).clone();
         let lock_guard = lock_cloned.lock().await;
 
+        // todo: optimize creating once.
+        let parent_dir = Path::new(data_file_path.as_str()).parent().unwrap();
+        let parent_path_str = format!("{}/", parent_dir.to_str().unwrap());
+        self.operator.create_dir(parent_path_str.as_str()).await?;
+
         let mut index_bytes_holder = BytesMut::new();
         let mut data_bytes_holder = BytesMut::new();
 
@@ -130,5 +136,19 @@ impl Store for HdfsStore {
 
     async fn is_healthy(&self) -> anyhow::Result<bool> {
         Ok(true)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::Path;
+
+    #[test]
+    fn dir_test() -> anyhow::Result<()> {
+        let file_path = "app/0/1.data";
+        let parent_path = Path::new(file_path).parent().unwrap();
+        println!("{}", parent_path.to_str().unwrap());
+
+        Ok(())
     }
 }
