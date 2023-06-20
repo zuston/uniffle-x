@@ -1,13 +1,13 @@
 use std::borrow::BorrowMut;
 use std::cmp::max;
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::hash::Hash;
 use std::str::FromStr;
 use std::sync::{Arc};
 use std::time::Duration;
 use crate::app::{PartitionedUId, ReadingIndexViewContext, ReadingOptions, ReadingViewContext, RequireBufferContext, WritingViewContext};
 use crate::store::memory::{MemorySnapshot, MemoryStore, StagingBuffer};
-use crate::store::{ResponseData, ResponseDataIndex, Store};
+use crate::store::{Persistent, ResponseData, ResponseDataIndex, Store};
 use crate::store::localfile::LocalFileStore;
 use async_trait::async_trait;
 use anyhow::{Result, anyhow};
@@ -20,15 +20,23 @@ use tokio::sync::mpsc::Receiver;
 use tokio::task::JoinHandle;
 use tracing::field::debug;
 use crate::config;
-use crate::config::{Config, HybridStoreConfig, LocalfileStoreConfig};
+use crate::config::{Config, HdfsStoreConfig, HybridStoreConfig, LocalfileStoreConfig, StorageType};
 use crate::metric::{GAUGE_MEMORY_SPILL_OPERATION, TOTAL_MEMORY_SPILL_OPERATION, TOTAL_MEMORY_SPILL_OPERATION_FAILED};
 use crate::readable_size::ReadableSize;
+use crate::store::hdfs::HdfsStore;
 use crate::store::ResponseData::mem;
+
+trait PersistentStore: Store + Persistent + Send + Sync {}
+impl PersistentStore for LocalFileStore {}
+impl PersistentStore for HdfsStore {}
 
 pub struct HybridStore {
     // Box<dyn Store> will build fail
     hot_store: Box<MemoryStore>,
-    warm_store: Box<LocalFileStore>,
+
+    warm_store: Option<Box<dyn PersistentStore>>,
+    cold_store: Option<Box<dyn PersistentStore>>,
+
     config: HybridStoreConfig,
     memory_spill_lock: Mutex<()>,
     memory_spill_recv: async_channel::Receiver<SpillMessage>,
@@ -44,12 +52,33 @@ struct SpillMessage {
 unsafe impl Send for HybridStore {}
 unsafe impl Sync for HybridStore {}
 
+
 impl HybridStore {
     pub fn from(config: Config) -> Self {
+        let store_type = &config.store_type.unwrap_or(StorageType::MEMORY);
+        if !StorageType::contains_memory(&store_type) {
+            panic!("Storage type must contains memory.");
+        }
+
+        let mut persistent_stores: VecDeque<Box<dyn PersistentStore>> = VecDeque::with_capacity(2);
+        if StorageType::contains_localfile(&store_type) {
+            let localfile_store = LocalFileStore::from(config.localfile_store.unwrap());
+            persistent_stores.push_back(
+                Box::new(localfile_store)
+            );
+        }
+        if StorageType::contains_hdfs(&store_type) {
+            let hdfs_store = HdfsStore::from(config.hdfs_store.unwrap());
+            persistent_stores.push_back(
+                Box::new(hdfs_store)
+            );
+        }
+
         let (send, recv) = async_channel::unbounded();
         let mut store = HybridStore {
             hot_store: Box::new(MemoryStore::from(config.memory_store.unwrap())),
-            warm_store: Box::new(LocalFileStore::from(config.localfile_store.unwrap())),
+            warm_store: persistent_stores.pop_front(),
+            cold_store: persistent_stores.pop_front(),
             config: config.hybrid_store.unwrap(),
             memory_spill_lock: Mutex::new(()),
             memory_spill_recv: recv,
@@ -57,6 +86,10 @@ impl HybridStore {
             memory_spill_event_num: AtomicU64::new(0)
         };
         store
+    }
+
+    fn is_memory_only(&self) -> bool {
+        self.cold_store.is_none() && self.warm_store.is_none()
     }
 
     async fn memory_spill_to_localfile(&self, ctx: WritingViewContext, in_flight_blocks_id: i64) -> Result<String> {
@@ -69,7 +102,7 @@ impl HybridStore {
 
         let message = format!("partition uid: {:?}, memory spilled size: {}", ctx.uid.clone(), spill_size);
 
-        self.warm_store.insert(ctx).await?;
+        self.warm_store.as_ref().unwrap().insert(ctx).await?;
         self.hot_store.release_in_flight_blocks_in_underlying_staging_buffer(uid, in_flight_blocks_id).await?;
         self.hot_store.free_memory(spill_size).await?;
 
@@ -117,6 +150,10 @@ impl Store for HybridStore {
     /// the self as the Arc<xxx> rather than mpsc::channel, which
     /// uses the recv(&mut self). I don't hope so.
     fn start(self: Arc<HybridStore>) {
+        if self.is_memory_only() {
+            return;
+        }
+
         let store = self.clone();
         tokio::spawn(async move {
             while let Ok(message) = store.memory_spill_recv.recv().await {
@@ -140,7 +177,11 @@ impl Store for HybridStore {
 
     async fn insert(&self, ctx: WritingViewContext) -> Result<()> {
         let uid = ctx.uid.clone();
+
         let insert_result = self.hot_store.insert(ctx).await;
+        if self.is_memory_only() {
+            return insert_result;
+        }
 
         let spill_lock = self.memory_spill_lock.lock().await;
 
@@ -178,12 +219,12 @@ impl Store for HybridStore {
     async fn get(&self, ctx: ReadingViewContext) -> Result<ResponseData> {
         match ctx.reading_options {
             ReadingOptions::MEMORY_LAST_BLOCK_ID_AND_MAX_SIZE(_, _) => self.hot_store.get(ctx).await,
-            _ => self.warm_store.get(ctx).await
+            _ => self.warm_store.as_ref().unwrap().get(ctx).await
         }
     }
 
     async fn get_index(&self, ctx: ReadingIndexViewContext) -> Result<ResponseDataIndex> {
-        self.warm_store.get_index(ctx).await
+        self.warm_store.as_ref().unwrap().get_index(ctx).await
     }
 
     async fn require_buffer(&self, ctx: RequireBufferContext) -> Result<(bool, i64)> {
@@ -192,20 +233,26 @@ impl Store for HybridStore {
 
     async fn purge(&self, app_id: String) -> Result<()> {
         self.hot_store.purge(app_id.clone()).await?;
-        self.warm_store.purge(app_id).await?;
+        if self.warm_store.is_some() {
+            self.warm_store.as_ref().unwrap().purge(app_id.clone()).await?;
+        }
+        if self.cold_store.is_some() {
+            self.cold_store.as_ref().unwrap().purge(app_id.clone()).await?;
+        }
         Ok(())
     }
 
     async fn is_healthy(&self) -> Result<bool> {
         Ok(
             self.hot_store.is_healthy().await?
-                && self.warm_store.is_healthy().await?
+                && self.warm_store.as_ref().unwrap().is_healthy().await?
         )
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use std::collections::VecDeque;
     use std::fs::read;
     use std::sync::Arc;
     use std::thread;
@@ -219,6 +266,16 @@ mod tests {
     use crate::store::hybrid::HybridStore;
     use crate::store::{PartitionedDataBlock, ResponseData, ResponseDataIndex, Store};
     use crate::store::ResponseData::{local, mem};
+
+    #[test]
+    fn test_vec_pop() {
+        let mut stores = VecDeque::with_capacity(2);
+        stores.push_back(1);
+        stores.push_back(2);
+        assert_eq!(1, stores.pop_front().unwrap());
+        assert_eq!(2, stores.pop_front().unwrap());
+        assert_eq!(None, stores.pop_front());
+    }
 
     fn start_store(memory_single_buffer_max_spill_size: Option<String>, memory_capacity: String) -> Arc<HybridStore> {
         let data = b"hello world!";
