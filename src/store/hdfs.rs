@@ -9,13 +9,13 @@ use opendal::{Entry, Metakey, Operator};
 use opendal::services::Hdfs;
 use crate::config::HdfsStoreConfig;
 
-struct HdfsStore {
+pub struct HdfsStore {
     basic_path: String,
     operator: Operator,
 }
 
 impl HdfsStore {
-    fn from(conf: HdfsStoreConfig) -> Self {
+    pub fn from(conf: HdfsStoreConfig) -> Self {
         let basic_path = conf.data_path;
 
         let mut builder = Hdfs::default();
@@ -52,7 +52,7 @@ impl Persistent for HdfsStore {}
 #[async_trait]
 impl Store for HdfsStore {
     fn start(self: Arc<Self>) {
-        todo!()
+        info!("There is nothing to do in hdfs store");
     }
 
     async fn insert(&self, ctx: WritingViewContext) -> anyhow::Result<()> {

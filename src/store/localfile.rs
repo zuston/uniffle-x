@@ -14,7 +14,7 @@ use anyhow::Result;
 use bytes::{BufMut, Bytes, BytesMut};
 use tokio::fs::OpenOptions;
 use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt};
-use crate::store::{LocalDataIndex, PartitionedLocalData, ResponseData, ResponseDataIndex, Store};
+use crate::store::{LocalDataIndex, PartitionedLocalData, Persistent, ResponseData, ResponseDataIndex, Store};
 use async_trait::async_trait;
 use futures::future::err;
 use log::{debug, error, info, warn};
@@ -41,6 +41,8 @@ pub struct LocalFileStore {
     partition_file_locks: DashMap<String, Arc<RwLock<()>>>,
     healthy_check_min_disks: i32,
 }
+
+impl Persistent for LocalFileStore {}
 
 unsafe impl Send for LocalFileStore {}
 unsafe impl Sync for LocalFileStore {}

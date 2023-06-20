@@ -113,11 +113,31 @@ pub enum RotationConfig {
 
 // =========================================================
 
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Copy)]
 pub enum StorageType {
-    MEMORY,
-    LOCALFILE,
-    MEMORY_LOCALFILE
+    MEMORY = 1,
+    LOCALFILE = 2,
+    MEMORY_LOCALFILE = 3,
+    HDFS = 4,
+    MEMORY_HDFS = 5,
+    MEMORY_LOCALFILE_HDFS = 7
+}
+
+impl StorageType {
+    pub fn contains_localfile(storage_type: &StorageType) -> bool {
+        let val = *storage_type as u8;
+        val & *&StorageType::LOCALFILE as u8 != 0
+    }
+
+    pub fn contains_memory(storage_type: &StorageType) -> bool {
+        let val = *storage_type as u8;
+        val & *&StorageType::MEMORY as u8 != 0
+    }
+
+    pub fn contains_hdfs(storage_type: &StorageType) -> bool {
+        let val = *storage_type as u8;
+        val & *&StorageType::HDFS as u8 != 0
+    }
 }
 
 const CONFIG_FILE_PATH_KEY: &str = "DATANODE_CONFIG_PATH";
@@ -141,8 +161,21 @@ impl Config {
 #[cfg(test)]
 mod test {
     use std::str::FromStr;
-    use crate::config::Config;
+    use crate::config::{Config, StorageType};
     use crate::readable_size::ReadableSize;
+
+    #[test]
+    fn storage_type_test() {
+        let stype = StorageType::MEMORY_LOCALFILE;
+        assert_eq!(true, StorageType::contains_localfile(&stype));
+
+        let stype = StorageType::MEMORY_LOCALFILE;
+        assert_eq!(true, StorageType::contains_memory(&stype));
+        assert_eq!(false, StorageType::contains_hdfs(&stype));
+
+        let stype = StorageType::MEMORY_LOCALFILE_HDFS;
+        assert_eq!(true, StorageType::contains_hdfs(&stype));
+    }
 
     #[test]
     fn config_test() {
