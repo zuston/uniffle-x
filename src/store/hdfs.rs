@@ -5,15 +5,18 @@ use crate::app::{PartitionedUId, ReadingIndexViewContext, ReadingViewContext, Re
 use crate::store::{Persistent, ResponseData, ResponseDataIndex, Store};
 use async_trait::async_trait;
 use bytes::{BufMut, BytesMut};
+use dashmap::DashMap;
 use log::info;
 use opendal::{Entry, Metakey, Operator};
 use opendal::services::Hdfs;
+use tokio::sync::Mutex;
 use crate::config::HdfsStoreConfig;
 use url::{Url, ParseError};
 
 pub struct HdfsStore {
     basic_path: String,
     operator: Operator,
+    partition_file_locks: DashMap<String, Arc<Mutex<()>>>
 }
 
 impl HdfsStore {
@@ -40,7 +43,8 @@ impl HdfsStore {
         
         HdfsStore {
             basic_path: data_url.to_string(),
-            operator: op
+            operator: op,
+            partition_file_locks: DashMap::new()
         }
     }
 
@@ -69,6 +73,9 @@ impl Store for HdfsStore {
         let data_blocks = ctx.data_blocks;
 
         let (data_file_path, index_file_path) = self.get_file_path_by_uid(&uid);
+
+        let lock_cloned = self.partition_file_locks.entry(data_file_path.clone()).or_insert_with(|| Arc::new(Mutex::new(()))).clone();
+        let lock_guard = lock_cloned.lock().await;
 
         let mut index_bytes_holder = BytesMut::new();
         let mut data_bytes_holder = BytesMut::new();
