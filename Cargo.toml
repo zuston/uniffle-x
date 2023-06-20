@@ -44,6 +44,7 @@ prometheus = { version = "0.13", features = ["process", "push"] }
 lazy_static = "1.4"
 crc32fast = "1.3.2"
 fs2 = "0.4.3"
+opendal = { git = "https://github.com/zuston/incubator-opendal.git", rev = "ca43351c1ac45ae1a65c53aa79a9bf3b8beee5b1", features = ["services-hdfs"]}
 
 [build-dependencies]
 tonic-build = "0.9.1"

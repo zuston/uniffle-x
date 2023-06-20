@@ -1,6 +1,7 @@
 pub mod memory;
 pub mod localfile;
 pub mod hybrid;
+pub mod hdfs;
 
 use std::borrow::BorrowMut;
 use std::cell::{Ref, RefCell, RefMut};
@@ -143,6 +144,8 @@ pub trait Store {
     async fn purge(&self, app_id: String) -> Result<()>;
     async fn is_healthy(&self) -> Result<bool>;
 }
+
+pub trait Persistent {}
 
 pub struct StoreProvider {}
 

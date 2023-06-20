@@ -10,6 +10,13 @@ pub struct MemoryStoreConfig {
 // =========================================================
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub struct HdfsStoreConfig {
+    pub data_path: String,
+}
+
+// =========================================================
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct LocalfileStoreConfig {
     pub data_paths: Vec<String>,
     pub healthy_check_min_disks: Option<i32>,
@@ -54,6 +61,7 @@ pub struct Config {
     pub memory_store: Option<MemoryStoreConfig>,
     pub localfile_store: Option<LocalfileStoreConfig>,
     pub hybrid_store: Option<HybridStoreConfig>,
+    pub hdfs_store: Option<HdfsStoreConfig>,
 
     pub store_type: Option<StorageType>,
 
