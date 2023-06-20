@@ -1,4 +1,5 @@
 use std::env;
+use std::path::Path;
 use std::sync::Arc;
 use crate::app::{PartitionedUId, ReadingIndexViewContext, ReadingViewContext, RequireBufferContext, WritingViewContext};
 use crate::store::{Persistent, ResponseData, ResponseDataIndex, Store};
@@ -8,6 +9,7 @@ use log::info;
 use opendal::{Entry, Metakey, Operator};
 use opendal::services::Hdfs;
 use crate::config::HdfsStoreConfig;
+use url::{Url, ParseError};
 
 pub struct HdfsStore {
     basic_path: String,
@@ -16,11 +18,18 @@ pub struct HdfsStore {
 
 impl HdfsStore {
     pub fn from(conf: HdfsStoreConfig) -> Self {
-        let basic_path = conf.data_path;
+        let data_path = conf.data_path;
+        let data_url = Url::parse(data_path.as_str()).unwrap();
+
+        let name_node = match data_url.host_str() {
+            Some(host) => format!("{}://{}", data_url.scheme(), host),
+            _ => "default".to_string()
+        };
 
         let mut builder = Hdfs::default();
-        builder.name_node("default");
-        builder.root(basic_path.as_str());
+        builder.name_node(&name_node);
+
+        builder.root(data_url.path());
 
         let krb5_cache = env::var("KRB5CACHE_PATH");
         if krb5_cache.is_ok() {
@@ -30,7 +39,7 @@ impl HdfsStore {
         let op: Operator = Operator::new(builder).expect("Errors on initializing opendal hdfs operator").finish();
         
         HdfsStore {
-            basic_path,
+            basic_path: data_url.to_string(),
             operator: op
         }
     }
