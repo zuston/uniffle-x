@@ -55,8 +55,8 @@ impl HdfsStore {
         let p_id = &uid.partition_id;
 
         (
-            format!("{}/{}/partition-{}.data", app_id, shuffle_id, p_id),
-            format!("{}/{}/partition-{}.index", app_id, shuffle_id, p_id)
+            format!("{}/{}/{}-{}/partition-{}.data", app_id, shuffle_id, p_id, p_id, p_id),
+            format!("{}/{}/{}-{}/partition-{}.index", app_id, shuffle_id, p_id, p_id, p_id)
         )
     }
 }
@@ -87,8 +87,11 @@ impl Store for HdfsStore {
         let mut data_bytes_holder = BytesMut::new();
 
         let mut next_offset = {
-            let metadata = self.operator.metadata(&Entry::new(&data_file_path), Metakey::ContentLength).await?;
-            metadata.content_length() as i64
+            let metadata = self.operator.metadata(&Entry::new(&data_file_path), Metakey::ContentLength).await;
+            match metadata {
+                Ok(m_data) => m_data.content_length() as i64,
+                _ => 0
+            }
         };
 
         for data_block in data_blocks {
