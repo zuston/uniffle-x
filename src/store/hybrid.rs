@@ -10,7 +10,7 @@ use crate::store::memory::{MemorySnapshot, MemoryStore, StagingBuffer};
 use crate::store::{Persistent, ResponseData, ResponseDataIndex, Store};
 use crate::store::localfile::LocalFileStore;
 use async_trait::async_trait;
-use anyhow::{Result, anyhow};
+use anyhow::{Result, anyhow, Error};
 use async_channel::TryRecvError;
 use log::{debug, error, info};
 use prometheus::core::{Atomic, AtomicU64};
@@ -42,6 +42,8 @@ pub struct HybridStore {
     memory_spill_recv: async_channel::Receiver<SpillMessage>,
     memory_spill_send: async_channel::Sender<SpillMessage>,
     memory_spill_event_num: AtomicU64,
+
+    memory_spill_to_cold_threshold_size: Option<u64>,
 }
 
 struct SpillMessage {
@@ -75,15 +77,21 @@ impl HybridStore {
         }
 
         let (send, recv) = async_channel::unbounded();
+        let hybrid_conf = config.hybrid_store.unwrap();
+        let memory_spill_to_cold_threshold_size = match &hybrid_conf.memory_spill_to_cold_threshold_size {
+            Some(v) => Some(ReadableSize::from_str(&v.clone()).unwrap().as_bytes()),
+            _ => None
+        };
         let mut store = HybridStore {
             hot_store: Box::new(MemoryStore::from(config.memory_store.unwrap())),
             warm_store: persistent_stores.pop_front(),
             cold_store: persistent_stores.pop_front(),
-            config: config.hybrid_store.unwrap(),
+            config: hybrid_conf,
             memory_spill_lock: Mutex::new(()),
             memory_spill_recv: recv,
             memory_spill_send: send,
-            memory_spill_event_num: AtomicU64::new(0)
+            memory_spill_event_num: AtomicU64::new(0),
+            memory_spill_to_cold_threshold_size
         };
         store
     }
@@ -92,7 +100,7 @@ impl HybridStore {
         self.cold_store.is_none() && self.warm_store.is_none()
     }
 
-    async fn memory_spill_to_localfile(&self, ctx: WritingViewContext, in_flight_blocks_id: i64) -> Result<String> {
+    async fn memory_spill_to_persistent_store(&self, ctx: WritingViewContext, in_flight_blocks_id: i64) -> Result<String> {
         let uid = ctx.uid.clone();
         let blocks = &ctx.data_blocks;
         let mut spill_size = 0i64;
@@ -100,9 +108,24 @@ impl HybridStore {
             spill_size += block.length as i64;
         }
 
-        let message = format!("partition uid: {:?}, memory spilled size: {}", ctx.uid.clone(), spill_size);
+        let warm = self.warm_store.as_ref().ok_or(anyhow!("empty warm store. It should not happen"))?;
+        let cold = self.cold_store.as_ref().unwrap_or(warm);
 
-        self.warm_store.as_ref().unwrap().insert(ctx).await?;
+        let spilled_store = if warm.is_healthy().await? {
+            let cold_spilled_size = self.memory_spill_to_cold_threshold_size.unwrap_or(u64::MAX);
+            if cold_spilled_size < spill_size as u64 {
+                cold
+            } else {
+                warm
+            }
+        } else {
+            cold
+        };
+
+
+        let message = format!("partition uid: {:?}, memory spilled size: {}", &ctx.uid, spill_size);
+
+        spilled_store.insert(ctx).await?;
         self.hot_store.release_in_flight_blocks_in_underlying_staging_buffer(uid, in_flight_blocks_id).await?;
         self.hot_store.free_memory(spill_size).await?;
 
@@ -161,7 +184,7 @@ impl Store for HybridStore {
                 GAUGE_MEMORY_SPILL_OPERATION.inc();
                 let store_cloned = store.clone();
                 tokio::spawn(async move {
-                    match store_cloned.memory_spill_to_localfile(message.ctx, message.id).await {
+                    match store_cloned.memory_spill_to_persistent_store(message.ctx, message.id).await {
                         Ok(msg) => debug!("{}", msg),
                         Err(error) => {
                             TOTAL_MEMORY_SPILL_OPERATION_FAILED.inc();
@@ -292,11 +315,11 @@ mod tests {
         config.localfile_store = Some(LocalfileStoreConfig::new(
             vec![temp_path]
         ));
-        config.hybrid_store = Some(HybridStoreConfig {
-            memory_spill_high_watermark: 0.8,
-            memory_spill_low_watermark: 0.2,
+        config.hybrid_store = Some(HybridStoreConfig::new(
+            0.8,
+            0.2,
             memory_single_buffer_max_spill_size
-        });
+        ));
         config.store_type = Some(StorageType::MEMORY_LOCALFILE);
 
         /// The hybrid store will flush the memory data to file when

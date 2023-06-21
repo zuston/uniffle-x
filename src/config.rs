@@ -1,6 +1,7 @@
 use std::fs;
 use std::path::Path;
 use serde::{Deserialize, Serialize};
+use crate::store::hybrid::HybridStore;
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct MemoryStoreConfig {
@@ -43,7 +44,19 @@ impl LocalfileStoreConfig {
 pub struct HybridStoreConfig {
     pub memory_spill_high_watermark: f32,
     pub memory_spill_low_watermark: f32,
-    pub memory_single_buffer_max_spill_size: Option<String>
+    pub memory_single_buffer_max_spill_size: Option<String>,
+    pub memory_spill_to_cold_threshold_size: Option<String>
+}
+
+impl HybridStoreConfig {
+    pub fn new(memory_spill_high_watermark: f32, memory_spill_low_watermark: f32, memory_single_buffer_max_spill_size: Option<String>) -> Self {
+        HybridStoreConfig {
+            memory_spill_high_watermark,
+            memory_spill_low_watermark,
+            memory_single_buffer_max_spill_size,
+            memory_spill_to_cold_threshold_size: None
+        }
+    }
 }
 
 impl Default for HybridStoreConfig {
@@ -51,7 +64,8 @@ impl Default for HybridStoreConfig {
         HybridStoreConfig {
             memory_spill_high_watermark: 0.8,
             memory_spill_low_watermark: 0.7,
-            memory_single_buffer_max_spill_size: None
+            memory_single_buffer_max_spill_size: None,
+            memory_spill_to_cold_threshold_size: None
         }
     }
 }

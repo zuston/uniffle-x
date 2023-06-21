@@ -23,11 +23,7 @@ mod tests {
                 disk_low_watermark: None,
                 disk_max_concurrency: None
             }),
-            hybrid_store: Some(HybridStoreConfig {
-                memory_spill_high_watermark: 0.9,
-                memory_spill_low_watermark: 0.5,
-                memory_single_buffer_max_spill_size: None
-            }),
+            hybrid_store: Some(HybridStoreConfig::new(0.9, 0.5, None)),
             hdfs_store: None,
             store_type: Some(StorageType::MEMORY_LOCALFILE),
             metrics: None,
