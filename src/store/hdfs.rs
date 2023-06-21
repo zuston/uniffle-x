@@ -1,24 +1,32 @@
-use std::env;
+use std::{env, io};
 use std::path::Path;
 use std::sync::Arc;
 use crate::app::{PartitionedUId, ReadingIndexViewContext, ReadingViewContext, RequireBufferContext, WritingViewContext};
 use crate::store::{Persistent, ResponseData, ResponseDataIndex, Store};
 use async_trait::async_trait;
-use bytes::{BufMut, BytesMut};
+use bytes::{BufMut, Bytes, BytesMut};
 use dashmap::DashMap;
-use log::info;
-use opendal::{Entry, Metakey, Operator};
-use opendal::services::Hdfs;
+use futures::AsyncWriteExt;
+use hdrs::{Client};
+use log::{error, info};
 use tokio::sync::Mutex;
+use tracing::debug;
 use crate::config::HdfsStoreConfig;
 use url::{Url, ParseError};
 use url::form_urlencoded::parse;
+use anyhow::Result;
+use async_channel::Sender;
+use futures::future::select;
 
 pub struct HdfsStore {
-    basic_path: String,
-    operator: Operator,
+    root: String,
+    filesystem: Box<Hdrs>,
     partition_file_locks: DashMap<String, Arc<Mutex<()>>>
 }
+
+unsafe impl Send for HdfsStore {}
+unsafe impl Sync for HdfsStore {}
+impl Persistent for HdfsStore {}
 
 impl HdfsStore {
     pub fn from(conf: HdfsStoreConfig) -> Self {
@@ -29,22 +37,19 @@ impl HdfsStore {
             Some(host) => format!("{}://{}", data_url.scheme(), host),
             _ => "default".to_string()
         };
+        let krb5_cache = env::var("KRB5CACHE_PATH").map_or(None, |v| Some(v));
+        let hdfs_user = env::var("HDFS_USER").map_or(None, |v| Some(v));
 
-        let mut builder = Hdfs::default();
-        builder.name_node(&name_node);
-
-        builder.root(data_url.path());
-
-        let krb5_cache = env::var("KRB5CACHE_PATH");
-        if krb5_cache.is_ok() {
-            builder.kerberos_ticket_cache_path(&krb5_cache.unwrap());
+        let fs = Hdrs::new(name_node.as_str(), krb5_cache, hdfs_user);
+        if fs.is_err() {
+            error!("Errors on connecting the hdfs. error: {:?}", fs.err());
+            panic!();
         }
+        let filesystem = fs.unwrap();
 
-        let op: Operator = Operator::new(builder).expect("Errors on initializing opendal hdfs operator").finish();
-        
         HdfsStore {
-            basic_path: data_url.to_string(),
-            operator: op,
+            root: data_url.to_string(),
+            filesystem: Box::new(filesystem),
             partition_file_locks: DashMap::new()
         }
     }
@@ -55,13 +60,11 @@ impl HdfsStore {
         let p_id = &uid.partition_id;
 
         (
-            format!("{}/{}/{}-{}/partition-{}.data", app_id, shuffle_id, p_id, p_id, p_id),
-            format!("{}/{}/{}-{}/partition-{}.index", app_id, shuffle_id, p_id, p_id, p_id)
+            format!("{}/{}/{}/{}-{}/partition-{}.data", &self.root, app_id, shuffle_id, p_id, p_id, p_id),
+            format!("{}/{}/{}/{}-{}/partition-{}.index", &self.root, app_id, shuffle_id, p_id, p_id, p_id)
         )
     }
 }
-
-impl Persistent for HdfsStore {}
 
 #[async_trait]
 impl Store for HdfsStore {
@@ -81,18 +84,13 @@ impl Store for HdfsStore {
         // todo: optimize creating once.
         let parent_dir = Path::new(data_file_path.as_str()).parent().unwrap();
         let parent_path_str = format!("{}/", parent_dir.to_str().unwrap());
-        self.operator.create_dir(parent_path_str.as_str()).await?;
+        debug!("creating dir: {}", parent_path_str.as_str());
+        self.filesystem.create_dir(parent_path_str.as_str()).await?;
 
         let mut index_bytes_holder = BytesMut::new();
         let mut data_bytes_holder = BytesMut::new();
 
-        let mut next_offset = {
-            let metadata = self.operator.metadata(&Entry::new(&data_file_path), Metakey::ContentLength).await;
-            match metadata {
-                Ok(m_data) => m_data.content_length() as i64,
-                _ => 0
-            }
-        };
+        let mut next_offset = self.filesystem.len(&data_file_path).await.map_or(0, |v| v as i64);
 
         for data_block in data_blocks {
             let block_id = data_block.block_id;
@@ -114,8 +112,8 @@ impl Store for HdfsStore {
             next_offset += length as i64;
         }
 
-        self.operator.append(&data_file_path, data_bytes_holder.freeze()).await?;
-        self.operator.append(&index_file_path, index_bytes_holder.freeze()).await?;
+        self.filesystem.append(&data_file_path, data_bytes_holder.freeze()).await?;
+        self.filesystem.append(&index_file_path, index_bytes_holder.freeze()).await?;
 
         Ok(())
     }
@@ -139,6 +137,71 @@ impl Store for HdfsStore {
 
     async fn is_healthy(&self) -> anyhow::Result<bool> {
         Ok(true)
+    }
+}
+
+#[async_trait]
+trait HdfsDelegator {
+    async fn append(&self, file_path: &str, data: Bytes) -> Result<()>;
+    async fn create_dir(&self, dir: &str) -> Result<()>;
+    async fn len(&self, file_path: &str) -> Result<u64>;
+}
+
+struct Hdrs {
+    client: Client
+}
+
+#[async_trait]
+impl HdfsDelegator for Hdrs {
+
+    async fn append(&self, file_path: &str, data: Bytes) -> Result<()> {
+        // check the file existence, if not, create it.
+        // todo: put into the cache.
+        let metadata = self.client.metadata(file_path);
+        if metadata.is_err() && metadata.unwrap_err().kind() == io::ErrorKind::NotFound {
+            debug!("Creating the file, path: {}", file_path);
+            let mut write = self.client.open_file().create(true).write(true).async_open(file_path).await?;
+            write.write("".as_bytes()).await?;
+            write.flush().await?;
+            write.close().await?;
+            debug!("the file: {} is created!", file_path);
+        }
+
+        let mut data_writer = self.client
+            .open_file()
+            .create(true)
+            .append(true)
+            .async_open(file_path)
+            .await?;
+        data_writer.write_all(data.as_ref()).await?;
+        data_writer.flush().await?;
+        data_writer.close().await?;
+        debug!("data has been flushed. path: {}", file_path);
+
+        Ok(())
+    }
+
+    async fn create_dir(&self, dir: &str) -> Result<()> {
+        self.client.create_dir(dir)?;
+        Ok(())
+    }
+
+    async fn len(&self, file_path: &str) -> Result<u64> {
+        let meta = self.client.metadata(file_path)?;
+        Ok(
+            meta.len()
+        )
+    }
+}
+
+impl Hdrs {
+    fn new(name_node: &str, krb5_cache: Option<String>, user: Option<String>) -> Result<Self> {
+        let client = Client::connect(name_node, user.unwrap().as_str(), krb5_cache.unwrap().as_str())?;
+        Ok(
+            Hdrs {
+                client
+            }
+        )
     }
 }
 
