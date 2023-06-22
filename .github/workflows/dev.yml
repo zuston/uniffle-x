@@ -33,8 +33,6 @@ jobs:
             target/
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: ${{ runner.os }}-cargo-
-      - name: Set LD_LIBRARY_PATH
-        run: echo "LD_LIBRARY_PATH=$LD_LIBRARY_PATH:$JAVA_HOME/jre/lib/amd64/server" >> $GITHUB_ENV
       - name: Build
         run: cargo build --verbose
       - name: Run tests
