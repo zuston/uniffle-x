@@ -9,7 +9,7 @@ use dashmap::DashMap;
 use futures::AsyncWriteExt;
 use hdrs::{Client};
 use log::{error, info};
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, Semaphore};
 use tracing::debug;
 use crate::config::HdfsStoreConfig;
 use url::{Url, ParseError};
@@ -21,7 +21,8 @@ use futures::future::select;
 pub struct HdfsStore {
     root: String,
     filesystem: Box<Hdrs>,
-    partition_file_locks: DashMap<String, Arc<Mutex<()>>>
+    partition_file_locks: DashMap<String, Arc<Mutex<()>>>,
+    concurrency_access_limiter: Semaphore
 }
 
 unsafe impl Send for HdfsStore {}
@@ -50,7 +51,8 @@ impl HdfsStore {
         HdfsStore {
             root: data_url.to_string(),
             filesystem: Box::new(filesystem),
-            partition_file_locks: DashMap::new()
+            partition_file_locks: DashMap::new(),
+            concurrency_access_limiter: Semaphore::new(conf.max_concurrency.unwrap_or(1) as usize)
         }
     }
 
@@ -73,6 +75,8 @@ impl Store for HdfsStore {
     }
 
     async fn insert(&self, ctx: WritingViewContext) -> anyhow::Result<()> {
+        let concurrency_guarder = self.concurrency_access_limiter.acquire().await?;
+
         let uid = ctx.uid;
         let data_blocks = ctx.data_blocks;
 
@@ -114,6 +118,8 @@ impl Store for HdfsStore {
 
         self.filesystem.append(&data_file_path, data_bytes_holder.freeze()).await?;
         self.filesystem.append(&index_file_path, index_bytes_holder.freeze()).await?;
+
+        drop(concurrency_guarder);
 
         Ok(())
     }
