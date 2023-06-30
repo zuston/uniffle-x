@@ -266,9 +266,16 @@ impl Store for HybridStore {
     }
 
     async fn is_healthy(&self) -> Result<bool> {
+        async fn check_healthy(store: Option<&Box<dyn PersistentStore>>) -> Result<bool> {
+            match store {
+                Some(store) => store.is_healthy().await,
+                _ => Ok(true)
+            }
+        }
+        let warm = check_healthy(self.warm_store.as_ref()).await.unwrap_or(false);
+        let cold = check_healthy(self.cold_store.as_ref()).await.unwrap_or(false);
         Ok(
-            self.hot_store.is_healthy().await?
-                && self.warm_store.as_ref().unwrap().is_healthy().await?
+            self.hot_store.is_healthy().await? && (warm || cold)
         )
     }
 }
@@ -289,6 +296,22 @@ mod tests {
     use crate::store::hybrid::HybridStore;
     use crate::store::{PartitionedDataBlock, ResponseData, ResponseDataIndex, Store};
     use crate::store::ResponseData::{local, mem};
+
+    #[tokio::test]
+    async fn test_only_memory() {
+        let mut config = Config::default();
+        config.memory_store=Some(MemoryStoreConfig {
+            capacity: "20M".to_string()
+        });
+        config.hybrid_store = Some(HybridStoreConfig::new(
+            0.8,
+            0.2,
+            None
+        ));
+        config.store_type = Some(StorageType::MEMORY);
+        let mut store = HybridStore::from(config);
+        assert_eq!(true, store.is_healthy().await.unwrap());
+    }
 
     #[test]
     fn test_vec_pop() {
