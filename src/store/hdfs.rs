@@ -1,6 +1,10 @@
 use std::{env, io};
+use std::arch::x86_64::_bittestandcomplement;
+use std::collections::HashMap;
+use std::hash::Hash;
 use std::path::Path;
 use std::sync::Arc;
+use std::sync::atomic::AtomicI64;
 use crate::app::{PartitionedUId, ReadingIndexViewContext, ReadingViewContext, RequireBufferContext, WritingViewContext};
 use crate::store::{Persistent, ResponseData, ResponseDataIndex, Store};
 use async_trait::async_trait;
@@ -14,15 +18,38 @@ use tracing::debug;
 use crate::config::HdfsStoreConfig;
 use url::{Url, ParseError};
 use url::form_urlencoded::parse;
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use async_channel::Sender;
 use futures::future::select;
+use toml::map::Entry;
+
+struct PartitionCachedMeta {
+    is_file_created: bool,
+    data_len: i64
+}
+
+impl PartitionCachedMeta {
+    pub fn reset(&mut self, len: i64) {
+        self.data_len = len;
+    }
+}
+
+impl Default for PartitionCachedMeta {
+    fn default() -> Self {
+        Self {
+            is_file_created: true,
+            data_len: 0
+        }
+    }
+}
 
 pub struct HdfsStore {
     root: String,
     filesystem: Box<Hdrs>,
+    concurrency_access_limiter: Semaphore,
+
     partition_file_locks: DashMap<String, Arc<Mutex<()>>>,
-    concurrency_access_limiter: Semaphore
+    partition_cached_meta: DashMap<String, PartitionCachedMeta>
 }
 
 unsafe impl Send for HdfsStore {}
@@ -52,11 +79,16 @@ impl HdfsStore {
             root: data_url.to_string(),
             filesystem: Box::new(filesystem),
             partition_file_locks: DashMap::new(),
-            concurrency_access_limiter: Semaphore::new(conf.max_concurrency.unwrap_or(1) as usize)
+            concurrency_access_limiter: Semaphore::new(conf.max_concurrency.unwrap_or(1) as usize),
+            partition_cached_meta: Default::default()
         }
     }
 
-    pub(crate) fn get_file_path_by_uid(&self, uid: &PartitionedUId) -> (String, String) {
+    fn get_app_dir(&self, app_id: &str) -> String {
+        format!("{}/{}/", &self.root, app_id)
+    }
+
+    fn get_file_path_by_uid(&self, uid: &PartitionedUId) -> (String, String) {
         let app_id = &uid.app_id;
         let shuffle_id = &uid.shuffle_id;
         let p_id = &uid.partition_id;
@@ -66,6 +98,7 @@ impl HdfsStore {
             format!("{}/{}/{}/{}-{}/partition-{}.index", &self.root, app_id, shuffle_id, p_id, p_id, p_id)
         )
     }
+
 }
 
 #[async_trait]
@@ -85,16 +118,28 @@ impl Store for HdfsStore {
         let lock_cloned = self.partition_file_locks.entry(data_file_path.clone()).or_insert_with(|| Arc::new(Mutex::new(()))).clone();
         let lock_guard = lock_cloned.lock().await;
 
-        // todo: optimize creating once.
-        let parent_dir = Path::new(data_file_path.as_str()).parent().unwrap();
-        let parent_path_str = format!("{}/", parent_dir.to_str().unwrap());
-        debug!("creating dir: {}", parent_path_str.as_str());
-        self.filesystem.create_dir(parent_path_str.as_str()).await?;
+        let mut next_offset = match self.partition_cached_meta.get(&data_file_path) {
+            None => {
+                // setup the parent folder
+                let parent_dir = Path::new(data_file_path.as_str()).parent().unwrap();
+                let parent_path_str = format!("{}/", parent_dir.to_str().unwrap());
+                debug!("creating dir: {}", parent_path_str.as_str());
+                self.filesystem.create_dir(parent_path_str.as_str()).await?;
+
+                // setup the file
+                self.filesystem.touch(&data_file_path).await?;
+                self.filesystem.touch(&index_file_path).await?;
+
+                self.partition_cached_meta.insert(data_file_path.to_string(), Default::default());
+                0
+            },
+            Some(meta) => {
+                meta.data_len
+            }
+        };
 
         let mut index_bytes_holder = BytesMut::new();
         let mut data_bytes_holder = BytesMut::new();
-
-        let mut next_offset = self.filesystem.len(&data_file_path).await.map_or(0, |v| v as i64);
 
         for data_block in data_blocks {
             let block_id = data_block.block_id;
@@ -119,6 +164,9 @@ impl Store for HdfsStore {
         self.filesystem.append(&data_file_path, data_bytes_holder.freeze()).await?;
         self.filesystem.append(&index_file_path, index_bytes_holder.freeze()).await?;
 
+        let mut partition_cached_meta = self.partition_cached_meta.get_mut(&data_file_path).unwrap();
+        partition_cached_meta.reset(next_offset);
+
         drop(concurrency_guarder);
 
         Ok(())
@@ -137,8 +185,21 @@ impl Store for HdfsStore {
     }
 
     async fn purge(&self, app_id: String) -> anyhow::Result<()> {
-        info!("Have not supported");
-        Ok(())
+        let app_dir = self.get_app_dir(app_id.as_str());
+
+        let keys_to_delete: Vec<_> = self.partition_file_locks
+            .iter()
+            .filter(|entry| entry.key().contains(app_dir.as_str()))
+            .map(|entry| entry.key().to_string())
+            .collect();
+
+        for deleted_key in keys_to_delete {
+            self.partition_file_locks.remove(&deleted_key);
+            self.partition_cached_meta.remove(&deleted_key);
+        }
+
+        info!("The hdfs data for {} has been deleted", &app_dir);
+        self.filesystem.delete_dir(app_dir.as_str()).await
     }
 
     async fn is_healthy(&self) -> anyhow::Result<bool> {
@@ -148,9 +209,12 @@ impl Store for HdfsStore {
 
 #[async_trait]
 trait HdfsDelegator {
+    async fn touch(&self, file_path: &str) -> Result<()>;
     async fn append(&self, file_path: &str, data: Bytes) -> Result<()>;
-    async fn create_dir(&self, dir: &str) -> Result<()>;
     async fn len(&self, file_path: &str) -> Result<u64>;
+
+    async fn create_dir(&self, dir: &str) -> Result<()>;
+    async fn delete_dir(&self, dir: &str) -> Result<()>;
 }
 
 struct Hdrs {
@@ -159,10 +223,7 @@ struct Hdrs {
 
 #[async_trait]
 impl HdfsDelegator for Hdrs {
-
-    async fn append(&self, file_path: &str, data: Bytes) -> Result<()> {
-        // check the file existence, if not, create it.
-        // todo: put into the cache.
+    async fn touch(&self, file_path: &str) -> Result<()> {
         let metadata = self.client.metadata(file_path);
         if metadata.is_err() && metadata.unwrap_err().kind() == io::ErrorKind::NotFound {
             debug!("Creating the file, path: {}", file_path);
@@ -172,7 +233,10 @@ impl HdfsDelegator for Hdrs {
             write.close().await?;
             debug!("the file: {} is created!", file_path);
         }
+        Ok(())
+    }
 
+    async fn append(&self, file_path: &str, data: Bytes) -> Result<()> {
         let mut data_writer = self.client
             .open_file()
             .create(true)
@@ -183,7 +247,6 @@ impl HdfsDelegator for Hdrs {
         data_writer.flush().await?;
         data_writer.close().await?;
         debug!("data has been flushed. path: {}", file_path);
-
         Ok(())
     }
 
@@ -197,6 +260,11 @@ impl HdfsDelegator for Hdrs {
         Ok(
             meta.len()
         )
+    }
+
+    async fn delete_dir(&self, dir: &str) -> Result<()> {
+        self.client.remove_dir_all(dir)?;
+        Ok(())
     }
 }
 
