@@ -187,6 +187,7 @@ impl Store for HybridStore {
             while let Ok(message) = store.memory_spill_recv.recv().await {
                 let mut temp_registry = registry.lock().await;
                 let root = temp_registry.register(idx, format!("actor: {idx}"));
+                idx += 1;
 
                 TOTAL_MEMORY_SPILL_OPERATION.inc();
                 GAUGE_MEMORY_SPILL_OPERATION.inc();
