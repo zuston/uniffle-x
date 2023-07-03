@@ -114,7 +114,7 @@ impl Store for HdfsStore {
 
         let (data_file_path, index_file_path) = self.get_file_path_by_uid(&uid);
 
-        let concurrency_guarder = self.concurrency_access_limiter.acquire().await?;
+        let concurrency_guarder = self.concurrency_access_limiter.acquire().instrument_await(format!("concurrency limit, path: {}", &data_file_path)).await?;
 
         let lock_cloned = self.partition_file_locks.entry(data_file_path.clone()).or_insert_with(|| Arc::new(Mutex::new(()))).clone();
         let lock_guard = lock_cloned.lock().instrument_await(format!("Partition file lock, path: {}", &data_file_path)).await;

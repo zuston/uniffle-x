@@ -211,8 +211,8 @@ impl Store for HybridStore {
             loop {
                 tokio::time::sleep(Duration::from_secs(60)).await;
                 let temp_registry = registry.lock().await;
+                info!("Output the async await tree..................");
                 for (_, tree) in temp_registry.iter() {
-                    info!("Output the async await tree..................");
                     info!("{tree}");
                 }
             }
