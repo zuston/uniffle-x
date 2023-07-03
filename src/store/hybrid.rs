@@ -12,6 +12,7 @@ use crate::store::localfile::LocalFileStore;
 use async_trait::async_trait;
 use anyhow::{Result, anyhow, Error};
 use async_channel::TryRecvError;
+use await_tree::Registry;
 use log::{debug, error, info};
 use prometheus::core::{Atomic, AtomicU64};
 use tokio::runtime::Runtime;
@@ -176,14 +177,21 @@ impl Store for HybridStore {
         if self.is_memory_only() {
             return;
         }
+        let await_tree_registry = Arc::new(Mutex::new(Registry::new(await_tree::Config::default())));
 
         let store = self.clone();
+        let registry = await_tree_registry.clone();
         tokio::spawn(async move {
+            let mut idx = 0;
+
             while let Ok(message) = store.memory_spill_recv.recv().await {
+                let mut temp_registry = registry.lock().await;
+                let root = temp_registry.register(idx, format!("actor: {idx}"));
+
                 TOTAL_MEMORY_SPILL_OPERATION.inc();
                 GAUGE_MEMORY_SPILL_OPERATION.inc();
                 let store_cloned = store.clone();
-                tokio::spawn(async move {
+                tokio::spawn(root.instrument(async move {
                     match store_cloned.memory_spill_to_persistent_store(message.ctx, message.id).await {
                         Ok(msg) => debug!("{}", msg),
                         Err(error) => {
@@ -193,7 +201,19 @@ impl Store for HybridStore {
                     }
                     store_cloned.memory_spill_event_num.dec_by(1);
                     GAUGE_MEMORY_SPILL_OPERATION.dec();
-                });
+                }));
+            }
+        });
+
+        let registry = await_tree_registry.clone();
+        tokio::spawn(async move {
+            loop {
+                tokio::time::sleep(Duration::from_secs(60)).await;
+                let temp_registry = registry.lock().await;
+                for (_, tree) in temp_registry.iter() {
+                    info!("Output the async await tree..................");
+                    info!("{tree}");
+                }
             }
         });
     }
