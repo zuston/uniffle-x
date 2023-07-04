@@ -26,7 +26,7 @@ use warp::delete;
 use crate::app::ReadingOptions::FILE_OFFSET_AND_LEN;
 use crate::config::LocalfileStoreConfig;
 use crate::error::DatanodeError;
-use crate::metric::TOTAL_LOCALFILE_USED;
+use crate::metric::{GAUGE_MEMORY_SPILL_TO_LOCALFILE, TOTAL_LOCALFILE_USED, TOTAL_MEMORY_SPILL_TO_LOCALFILE};
 use crate::store::ResponseDataIndex::local;
 use crate::util::get_crc;
 

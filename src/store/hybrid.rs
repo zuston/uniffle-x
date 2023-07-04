@@ -1,3 +1,4 @@
+use std::any::Any;
 use std::borrow::BorrowMut;
 use std::cmp::max;
 use std::collections::{HashMap, VecDeque};
@@ -23,7 +24,7 @@ use tracing::field::debug;
 use crate::await_tree::AWAIT_TREE_REGISTRY;
 use crate::config;
 use crate::config::{Config, HdfsStoreConfig, HybridStoreConfig, LocalfileStoreConfig, StorageType};
-use crate::metric::{GAUGE_MEMORY_SPILL_OPERATION, TOTAL_MEMORY_SPILL_OPERATION, TOTAL_MEMORY_SPILL_OPERATION_FAILED};
+use crate::metric::{GAUGE_MEMORY_SPILL_OPERATION, GAUGE_MEMORY_SPILL_TO_HDFS, GAUGE_MEMORY_SPILL_TO_LOCALFILE, TOTAL_MEMORY_SPILL_OPERATION, TOTAL_MEMORY_SPILL_OPERATION_FAILED, TOTAL_MEMORY_SPILL_TO_HDFS, TOTAL_MEMORY_SPILL_TO_LOCALFILE};
 use crate::readable_size::ReadableSize;
 use crate::store::hdfs::HdfsStore;
 use crate::store::ResponseData::mem;
@@ -109,6 +110,24 @@ impl HybridStore {
         self.cold_store.is_none() && self.warm_store.is_none()
     }
 
+    fn get_store_type(&self, store: &dyn Any) -> StorageType {
+        if store.is::<LocalFileStore>() {
+            return StorageType::LOCALFILE;
+        }
+        if store.is::<HdfsStore>() {
+            return StorageType::HDFS;
+        }
+        return StorageType::MEMORY;
+    }
+
+    fn is_localfile(&self, store: &dyn Any) -> bool {
+        store.is::<LocalFileStore>()
+    }
+
+    fn is_hdfs(&self, store: &dyn Any) -> bool {
+        store.is::<HdfsStore>()
+    }
+
     async fn memory_spill_to_persistent_store(&self, ctx: WritingViewContext, in_flight_blocks_id: i64) -> Result<String> {
         let uid = ctx.uid.clone();
         let blocks = &ctx.data_blocks;
@@ -120,7 +139,7 @@ impl HybridStore {
         let warm = self.warm_store.as_ref().ok_or(anyhow!("empty warm store. It should not happen"))?;
         let cold = self.cold_store.as_ref().unwrap_or(warm);
 
-        let spilled_store = if warm.is_healthy().await? {
+        let candidate_store = if warm.is_healthy().await? {
             let cold_spilled_size = self.memory_spill_to_cold_threshold_size.unwrap_or(u64::MAX);
             if cold_spilled_size < spill_size as u64 {
                 cold
@@ -131,12 +150,33 @@ impl HybridStore {
             cold
         };
 
+        match self.get_store_type(candidate_store) {
+            StorageType::LOCALFILE => {
+                TOTAL_MEMORY_SPILL_TO_LOCALFILE.inc();
+                GAUGE_MEMORY_SPILL_TO_LOCALFILE.inc();
+            },
+            StorageType::HDFS => {
+                TOTAL_MEMORY_SPILL_TO_HDFS.inc();
+                GAUGE_MEMORY_SPILL_TO_HDFS.inc();
+            },
+            _ => {}
+        }
 
         let message = format!("partition uid: {:?}, memory spilled size: {}", &ctx.uid, spill_size);
 
-        spilled_store.insert(ctx).await?;
+        candidate_store.insert(ctx).await?;
         self.hot_store.release_in_flight_blocks_in_underlying_staging_buffer(uid, in_flight_blocks_id).await?;
         self.hot_store.free_memory(spill_size).await?;
+
+        match self.get_store_type(candidate_store) {
+            StorageType::LOCALFILE => {
+                GAUGE_MEMORY_SPILL_TO_LOCALFILE.dec();
+            },
+            StorageType::HDFS => {
+                GAUGE_MEMORY_SPILL_TO_HDFS.dec();
+            },
+            _ => {}
+        }
 
         Ok(message)
     }
@@ -311,12 +351,32 @@ mod tests {
     use bytes::{Buf, Bytes, BytesMut};
     use log::info;
     use tokio::time;
-    use crate::app::{PartitionedUId, ReadingIndexViewContext, ReadingOptions, ReadingViewContext, RequireBufferContext, WritingViewContext};
+    use std::any::Any;
+    use crate::app::{App, PartitionedUId, ReadingIndexViewContext, ReadingOptions, ReadingViewContext, RequireBufferContext, WritingViewContext};
     use crate::app::ReadingOptions::{FILE_OFFSET_AND_LEN, MEMORY_LAST_BLOCK_ID_AND_MAX_SIZE};
-    use crate::config::{Config, HybridStoreConfig, LocalfileStoreConfig, MemoryStoreConfig, StorageType};
-    use crate::store::hybrid::HybridStore;
+    use crate::config::{Config, HdfsStoreConfig, HybridStoreConfig, LocalfileStoreConfig, MemoryStoreConfig, StorageType};
+    use crate::store::hybrid::{HybridStore, PersistentStore};
     use crate::store::{PartitionedDataBlock, ResponseData, ResponseDataIndex, Store};
+    use crate::store::hdfs::HdfsStore;
     use crate::store::ResponseData::{local, mem};
+
+    #[test]
+    fn type_downcast_check() {
+        trait Fruit {}
+
+        struct Banana {}
+        impl Fruit for Banana {}
+
+        struct Apple {}
+        impl Fruit for Apple {}
+
+        fn is_apple(store: &dyn Any) -> bool {
+            store.is::<Apple>()
+        }
+
+        assert_eq!(true, is_apple(&Apple {}));
+        assert_eq!(false, is_apple(&Banana {}));
+    }
 
     #[tokio::test]
     async fn test_only_memory() {
