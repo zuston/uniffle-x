@@ -15,7 +15,7 @@ use async_channel::TryRecvError;
 use log::{debug, error, info};
 use prometheus::core::{Atomic, AtomicU64};
 use tokio::runtime::Runtime;
-use tokio::sync::{mpsc, Mutex, MutexGuard, oneshot};
+use tokio::sync::{mpsc, Mutex, MutexGuard, oneshot, Semaphore};
 use tokio::sync::mpsc::Receiver;
 use tokio::task::JoinHandle;
 use tracing::field::debug;
@@ -29,6 +29,8 @@ use crate::store::ResponseData::mem;
 trait PersistentStore: Store + Persistent + Send + Sync {}
 impl PersistentStore for LocalFileStore {}
 impl PersistentStore for HdfsStore {}
+
+const DEFAULT_MEMORY_SPILL_MAX_CONCURRENCY: i32 = 20;
 
 pub struct HybridStore {
     // Box<dyn Store> will build fail
@@ -44,6 +46,8 @@ pub struct HybridStore {
     memory_spill_event_num: AtomicU64,
 
     memory_spill_to_cold_threshold_size: Option<u64>,
+
+    memory_spill_max_concurrency: i32,
 }
 
 struct SpillMessage {
@@ -82,6 +86,8 @@ impl HybridStore {
             Some(v) => Some(ReadableSize::from_str(&v.clone()).unwrap().as_bytes()),
             _ => None
         };
+        let memory_spill_max_concurrency = hybrid_conf.memory_spill_max_concurrency.unwrap_or(DEFAULT_MEMORY_SPILL_MAX_CONCURRENCY);
+
         let mut store = HybridStore {
             hot_store: Box::new(MemoryStore::from(config.memory_store.unwrap())),
             warm_store: persistent_stores.pop_front(),
@@ -91,7 +97,8 @@ impl HybridStore {
             memory_spill_recv: recv,
             memory_spill_send: send,
             memory_spill_event_num: AtomicU64::new(0),
-            memory_spill_to_cold_threshold_size
+            memory_spill_to_cold_threshold_size,
+            memory_spill_max_concurrency,
         };
         store
     }
@@ -178,8 +185,12 @@ impl Store for HybridStore {
         }
 
         let store = self.clone();
+        let concurrency_limiter = Arc::new(Semaphore::new(store.memory_spill_max_concurrency as usize));
         tokio::spawn(async move {
             while let Ok(message) = store.memory_spill_recv.recv().await {
+                // using acquire_owned(), refer to https://github.com/tokio-rs/tokio/issues/1998
+                let concurrency_guarder = concurrency_limiter.clone().acquire_owned().await.unwrap();
+
                 TOTAL_MEMORY_SPILL_OPERATION.inc();
                 GAUGE_MEMORY_SPILL_OPERATION.inc();
                 let store_cloned = store.clone();
@@ -193,6 +204,7 @@ impl Store for HybridStore {
                     }
                     store_cloned.memory_spill_event_num.dec_by(1);
                     GAUGE_MEMORY_SPILL_OPERATION.dec();
+                    drop(concurrency_guarder);
                 });
             }
         });
