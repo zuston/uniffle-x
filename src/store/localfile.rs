@@ -16,6 +16,7 @@ use tokio::fs::OpenOptions;
 use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt};
 use crate::store::{LocalDataIndex, PartitionedLocalData, Persistent, ResponseData, ResponseDataIndex, Store};
 use async_trait::async_trait;
+use await_tree::InstrumentAwait;
 use futures::future::err;
 use log::{debug, error, info, warn};
 use tokio::sync::{RwLock, Semaphore};
@@ -199,7 +200,7 @@ impl Store for LocalFileStore {
         let local_disk = self.get_or_create_owned_disk(uid.clone()).await?;
 
         let lock_cloned = self.partition_file_locks.entry(data_file_path.clone()).or_insert_with(|| Arc::new(RwLock::new(()))).clone();
-        let lock_guard = lock_cloned.write().await;
+        let lock_guard = lock_cloned.write().instrument_await(format!("localfile partition file lock. path: {}", data_file_path)).await;
 
         // resort the blocks by task_attempt_id to support local order
         ctx.data_blocks.sort_by_key(|block| block.task_attempt_id);
@@ -237,8 +238,14 @@ impl Store for LocalFileStore {
             next_offset += length as i64;
         }
 
-        local_disk.write(data_bytes_holder.freeze(), data_file_path.clone()).await?;
-        local_disk.write(index_bytes_holder.freeze(), index_file_path.clone()).await?;
+        local_disk
+            .write(data_bytes_holder.freeze(), data_file_path.clone())
+            .instrument_await(format!("localfile writing data. path: {}", data_file_path))
+            .await?;
+        local_disk
+            .write(index_bytes_holder.freeze(), index_file_path.clone())
+            .instrument_await(format!("localfile writing index. path: {}", data_file_path))
+            .await?;
 
         TOTAL_LOCALFILE_USED.inc_by(total_size as u64);
 

@@ -12,6 +12,7 @@ use crate::store::localfile::LocalFileStore;
 use async_trait::async_trait;
 use anyhow::{Result, anyhow, Error};
 use async_channel::TryRecvError;
+use await_tree::Registry;
 use log::{debug, error, info};
 use prometheus::core::{Atomic, AtomicU64};
 use tokio::runtime::Runtime;
@@ -19,6 +20,7 @@ use tokio::sync::{mpsc, Mutex, MutexGuard, oneshot, Semaphore};
 use tokio::sync::mpsc::Receiver;
 use tokio::task::JoinHandle;
 use tracing::field::debug;
+use crate::await_tree::AWAIT_TREE_REGISTRY;
 use crate::config;
 use crate::config::{Config, HdfsStoreConfig, HybridStoreConfig, LocalfileStoreConfig, StorageType};
 use crate::metric::{GAUGE_MEMORY_SPILL_OPERATION, TOTAL_MEMORY_SPILL_OPERATION, TOTAL_MEMORY_SPILL_OPERATION_FAILED};
@@ -184,17 +186,24 @@ impl Store for HybridStore {
             return;
         }
 
+        let await_tree_registry: Arc<Mutex<Registry<u64>>> = AWAIT_TREE_REGISTRY.clone();
+
         let store = self.clone();
         let concurrency_limiter = Arc::new(Semaphore::new(store.memory_spill_max_concurrency as usize));
         tokio::spawn(async move {
+            let mut counter = 0u64;
             while let Ok(message) = store.memory_spill_recv.recv().await {
+                let mut registry = await_tree_registry.lock().await;
+                let await_root = registry.register(counter, format!("actor: {}", counter));
+                counter += 1;
+
                 // using acquire_owned(), refer to https://github.com/tokio-rs/tokio/issues/1998
                 let concurrency_guarder = concurrency_limiter.clone().acquire_owned().await.unwrap();
 
                 TOTAL_MEMORY_SPILL_OPERATION.inc();
                 GAUGE_MEMORY_SPILL_OPERATION.inc();
                 let store_cloned = store.clone();
-                tokio::spawn(async move {
+                tokio::spawn(await_root.instrument(async move {
                     match store_cloned.memory_spill_to_persistent_store(message.ctx, message.id).await {
                         Ok(msg) => debug!("{}", msg),
                         Err(error) => {
@@ -205,7 +214,7 @@ impl Store for HybridStore {
                     store_cloned.memory_spill_event_num.dec_by(1);
                     GAUGE_MEMORY_SPILL_OPERATION.dec();
                     drop(concurrency_guarder);
-                });
+                }));
             }
         });
     }
