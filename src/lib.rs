@@ -7,6 +7,7 @@ pub mod config;
 pub mod metric;
 pub mod util;
 pub mod readable_size;
+pub mod await_tree;
 
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use anyhow::Result;

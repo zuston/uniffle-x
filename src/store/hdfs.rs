@@ -20,6 +20,7 @@ use url::{Url, ParseError};
 use url::form_urlencoded::parse;
 use anyhow::{anyhow, Result};
 use async_channel::Sender;
+use await_tree::InstrumentAwait;
 use futures::future::select;
 use toml::map::Entry;
 
@@ -108,15 +109,20 @@ impl Store for HdfsStore {
     }
 
     async fn insert(&self, ctx: WritingViewContext) -> anyhow::Result<()> {
-        let concurrency_guarder = self.concurrency_access_limiter.acquire().await?;
 
         let uid = ctx.uid;
         let data_blocks = ctx.data_blocks;
 
         let (data_file_path, index_file_path) = self.get_file_path_by_uid(&uid);
 
+        let concurrency_guarder =
+            self.concurrency_access_limiter
+                .acquire()
+                .instrument_await(format!("hdfs concurrency limiter. path: {}", data_file_path))
+                .await?;
+
         let lock_cloned = self.partition_file_locks.entry(data_file_path.clone()).or_insert_with(|| Arc::new(Mutex::new(()))).clone();
-        let lock_guard = lock_cloned.lock().await;
+        let lock_guard = lock_cloned.lock().instrument_await(format!("hdfs partition file lock. path: {}", data_file_path)).await;
 
         let mut next_offset = match self.partition_cached_meta.get(&data_file_path) {
             None => {
@@ -161,8 +167,10 @@ impl Store for HdfsStore {
             next_offset += length as i64;
         }
 
-        self.filesystem.append(&data_file_path, data_bytes_holder.freeze()).await?;
-        self.filesystem.append(&index_file_path, index_bytes_holder.freeze()).await?;
+        self.filesystem.append(&data_file_path, data_bytes_holder.freeze())
+            .instrument_await(format!("hdfs writing data. path: {}", data_file_path)).await?;
+        self.filesystem.append(&index_file_path, index_bytes_holder.freeze())
+            .instrument_await(format!("hdfs writing index. path: {}", data_file_path)).await?;
 
         let mut partition_cached_meta = self.partition_cached_meta.get_mut(&data_file_path).unwrap();
         partition_cached_meta.reset(next_offset);

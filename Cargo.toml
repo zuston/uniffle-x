@@ -48,6 +48,7 @@ url = "2.4.0"
 hdrs = { git="https://github.com/zuston/hdrs.git", branch = "kerberos-draft", features = ["async_file"]}
 #hdrs = { version = "0.2.0", features = ["async_file"] }
 #hdrs = { path = "../hdrs", features = ["async_file"] }
+await-tree = "0.1.1"
 
 [build-dependencies]
 tonic-build = "0.9.1"

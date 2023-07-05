@@ -33,6 +33,7 @@ mod config;
 mod metric;
 mod util;
 mod readable_size;
+mod await_tree;
 
 const DEFAULT_SHUFFLE_SERVER_TAG: &str = "ss_v4";
 
