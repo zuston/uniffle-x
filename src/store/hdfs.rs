@@ -23,6 +23,7 @@ use async_channel::Sender;
 use await_tree::InstrumentAwait;
 use futures::future::select;
 use toml::map::Entry;
+use crate::metric::{TOTAL_HDFS_USED, TOTAL_MEMORY_SPILL_TO_HDFS};
 
 struct PartitionCachedMeta {
     is_file_created: bool,
@@ -147,6 +148,7 @@ impl Store for HdfsStore {
         let mut index_bytes_holder = BytesMut::new();
         let mut data_bytes_holder = BytesMut::new();
 
+        let mut total_flushed = 0;
         for data_block in data_blocks {
             let block_id = data_block.block_id;
             let crc = data_block.crc;
@@ -165,6 +167,8 @@ impl Store for HdfsStore {
             data_bytes_holder.extend_from_slice(&data);
 
             next_offset += length as i64;
+
+            total_flushed += length;
         }
 
         self.filesystem.append(&data_file_path, data_bytes_holder.freeze())
@@ -174,6 +178,8 @@ impl Store for HdfsStore {
 
         let mut partition_cached_meta = self.partition_cached_meta.get_mut(&data_file_path).unwrap();
         partition_cached_meta.reset(next_offset);
+
+        TOTAL_HDFS_USED.inc_by(total_flushed as u64);
 
         drop(concurrency_guarder);
 

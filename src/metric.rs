@@ -14,15 +14,21 @@ lazy_static! {
     pub static ref TOTAL_RECEIVED_DATA: IntCounter = IntCounter::new("total_received_data", "Incoming Requests").expect("metric should be created");
     pub static ref TOTAL_MEMORY_USED: IntCounter = IntCounter::new("total_memory_used", "Total memory used").expect("metric should be created");
     pub static ref TOTAL_LOCALFILE_USED: IntCounter = IntCounter::new("total_localfile_used", "Total localfile used").expect("metric should be created");
+    pub static ref TOTAL_HDFS_USED: IntCounter = IntCounter::new("total_hdfs_used", "Total hdfs used").expect("metric should be created");
 
     pub static ref GAUGE_MEMORY_USED: IntGauge = IntGauge::new("memory_used", "memory used").expect("metric should be created");
     pub static ref GAUGE_MEMORY_ALLOCATED: IntGauge = IntGauge::new("memory_allocated", "memory allocated").expect("metric should be created");
     pub static ref GAUGE_MEMORY_CAPACITY: IntGauge = IntGauge::new("memory_capacity", "memory capacity").expect("metric should be created");
 
-    pub static ref TOTAL_MEMORY_SPILL_OPERATION: IntCounter = IntCounter::new("total_memory_spill_operation", "memory capacity").expect("metric should be created");
-    pub static ref TOTAL_MEMORY_SPILL_OPERATION_FAILED: IntCounter = IntCounter::new("total_memory_spill_operation_failed", "memory capacity").expect("metric should be created");
+    pub static ref TOTAL_MEMORY_SPILL_OPERATION: IntCounter = IntCounter::new("total_memory_spill", "memory capacity").expect("metric should be created");
+    pub static ref TOTAL_MEMORY_SPILL_OPERATION_FAILED: IntCounter = IntCounter::new("total_memory_spill_failed", "memory capacity").expect("metric should be created");
 
-    pub static ref GAUGE_MEMORY_SPILL_OPERATION: IntGauge = IntGauge::new("memory_spill_operation", "memory spill").expect("metric should be created");
+    pub static ref TOTAL_MEMORY_SPILL_TO_LOCALFILE: IntCounter = IntCounter::new("total_memory_spill_to_localfile", "memory spill to localfile").expect("metric should be created");
+    pub static ref TOTAL_MEMORY_SPILL_TO_HDFS: IntCounter = IntCounter::new("total_memory_spill_to_hdfs", "memory spill to hdfs").expect("metric should be created");
+
+    pub static ref GAUGE_MEMORY_SPILL_OPERATION: IntGauge = IntGauge::new("memory_spill", "memory spill").expect("metric should be created");
+    pub static ref GAUGE_MEMORY_SPILL_TO_LOCALFILE: IntGauge = IntGauge::new("memory_spill_to_localfile", "memory spill to localfile").expect("metric should be created");
+    pub static ref GAUGE_MEMORY_SPILL_TO_HDFS: IntGauge = IntGauge::new("memory_spill_to_hdfs", "memory spill to hdfs").expect("metric should be created");
 
     pub static ref TOTAL_APP_NUMBER : IntCounter = IntCounter::new("total_app_number", "total_app_number").expect("metrics should be created");
     pub static ref TOTAL_PARTITION_NUMBER: IntCounter = IntCounter::new("total_partition_number", "total_partition_number").expect("metrics should be created");
@@ -38,12 +44,15 @@ fn register_custom_metrics() {
     REGISTRY.register(Box::new(TOTAL_RECEIVED_DATA.clone())).expect("total_received_data must be registered");
     REGISTRY.register(Box::new(TOTAL_MEMORY_USED.clone())).expect("total_memory_used must be registered");
     REGISTRY.register(Box::new(TOTAL_LOCALFILE_USED.clone())).expect("total_localfile_used must be registered");
+    REGISTRY.register(Box::new(TOTAL_HDFS_USED.clone())).expect("total_hdfs_used must be registered");
     REGISTRY.register(Box::new(TOTAL_MEMORY_SPILL_OPERATION.clone())).expect("total_memory_spill_operation must be registered");
     REGISTRY.register(Box::new(TOTAL_MEMORY_SPILL_OPERATION_FAILED.clone())).expect("total_memory_spill_operation_failed must be registered");
     REGISTRY.register(Box::new(TOTAL_APP_NUMBER.clone())).expect("total_app_number must be registered");
     REGISTRY.register(Box::new(TOTAL_PARTITION_NUMBER.clone())).expect("total_partition_number must be registered");
     REGISTRY.register(Box::new(TOTAL_REQUIRE_BUFFER_FAILED.clone())).expect("total_require_buffer_failed must be registered");
     REGISTRY.register(Box::new(TOTAL_HUGE_PARTITION_REQUIRE_BUFFER_FAILED.clone())).expect("total_huge_partition_require_buffer_failed must be registered");
+    REGISTRY.register(Box::new(TOTAL_MEMORY_SPILL_TO_LOCALFILE.clone())).expect("total_memory_spill_to_localfile must be registered");
+    REGISTRY.register(Box::new(TOTAL_MEMORY_SPILL_TO_HDFS.clone())).expect("total_memory_spill_to_hdfs must be registered");
 
     REGISTRY.register(Box::new(GAUGE_MEMORY_USED.clone())).expect("memory_used must be registered");
     REGISTRY.register(Box::new(GAUGE_MEMORY_ALLOCATED.clone())).expect("memory_allocated must be registered");
@@ -51,6 +60,8 @@ fn register_custom_metrics() {
     REGISTRY.register(Box::new(GAUGE_APP_NUMBER.clone())).expect("app_number must be registered");
     REGISTRY.register(Box::new(GAUGE_PARTITION_NUMBER.clone())).expect("partition_number must be registered");
     REGISTRY.register(Box::new(GAUGE_MEMORY_SPILL_OPERATION.clone())).expect("memory_spill_operation must be registered");
+    REGISTRY.register(Box::new(GAUGE_MEMORY_SPILL_TO_LOCALFILE.clone())).expect("memory_spill_to_localfile must be registered");
+    REGISTRY.register(Box::new(GAUGE_MEMORY_SPILL_TO_HDFS.clone())).expect("memory_spill_to_hdfs must be registered");
 }
 
 async fn metrics_handler() -> Result<impl Reply, Rejection> {
