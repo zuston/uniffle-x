@@ -14,6 +14,7 @@ use crate::store::{DataSegment, PartitionedDataBlock, PartitionedMemoryData, Res
 use async_trait::async_trait;
 use tokio::sync::Mutex;
 use crate::config::MemoryStoreConfig;
+use crate::error::DatanodeError;
 use crate::metric::{GAUGE_MEMORY_ALLOCATED, GAUGE_MEMORY_CAPACITY, GAUGE_MEMORY_USED, TOTAL_MEMORY_USED};
 use crate::readable_size::ReadableSize;
 
@@ -166,7 +167,7 @@ impl Store for MemoryStore {
         todo!()
     }
 
-    async fn insert(&self, ctx: WritingViewContext) -> Result<()> {
+    async fn insert(&self, ctx: WritingViewContext) -> Result<(), DatanodeError> {
         let uid = ctx.uid;
         let buffer = self.get_or_create_underlying_staging_buffer(uid.clone());
         let mut buffer_guarded = buffer.lock().await;
@@ -180,7 +181,7 @@ impl Store for MemoryStore {
         Ok(())
     }
 
-    async fn get(&self, ctx: ReadingViewContext) -> Result<ResponseData> {
+    async fn get(&self, ctx: ReadingViewContext) -> Result<ResponseData, DatanodeError> {
         let uid = ctx.uid;
         let buffer = self.get_or_create_underlying_staging_buffer(uid);
         let mut buffer = buffer.lock().await;
@@ -288,7 +289,7 @@ impl Store for MemoryStore {
         ))
     }
 
-    async fn get_index(&self, ctx: ReadingIndexViewContext) -> Result<ResponseDataIndex> {
+    async fn get_index(&self, ctx: ReadingIndexViewContext) -> Result<ResponseDataIndex, DatanodeError> {
         panic!("It should not be invoked.")
     }
 

@@ -189,7 +189,7 @@ impl Store for LocalFileStore {
         todo!()
     }
 
-    async fn insert(&self, mut  ctx: WritingViewContext) -> Result<()> {
+    async fn insert(&self, mut  ctx: WritingViewContext) -> Result<(), DatanodeError> {
         if ctx.data_blocks.len() <= 0 {
             return Ok(());
         }
@@ -198,6 +198,10 @@ impl Store for LocalFileStore {
         let pid = uid.partition_id;
         let (data_file_path, index_file_path) = LocalFileStore::gen_relative_path_for_partition(&uid);
         let local_disk = self.get_or_create_owned_disk(uid.clone()).await?;
+
+        if local_disk.is_corrupted()? {
+            return Err(DatanodeError::PARTIAL_DATA_LOST(local_disk.base_path.to_string()));
+        }
 
         let lock_cloned = self.partition_file_locks.entry(data_file_path.clone()).or_insert_with(|| Arc::new(RwLock::new(()))).clone();
         let lock_guard = lock_cloned.write().instrument_await(format!("localfile partition file lock. path: {}", data_file_path)).await;
@@ -252,7 +256,7 @@ impl Store for LocalFileStore {
         Ok(())
     }
 
-    async fn get(&self, ctx: ReadingViewContext) -> Result<ResponseData> {
+    async fn get(&self, ctx: ReadingViewContext) -> Result<ResponseData, DatanodeError> {
         let uid = ctx.uid;
         let (offset, len) = match ctx.reading_options {
             FILE_OFFSET_AND_LEN(offset, len) => (offset, len),
@@ -286,7 +290,7 @@ impl Store for LocalFileStore {
         }))
     }
 
-    async fn get_index(&self, ctx: ReadingIndexViewContext) -> Result<ResponseDataIndex> {
+    async fn get_index(&self, ctx: ReadingIndexViewContext) -> Result<ResponseDataIndex, DatanodeError> {
         let uid = ctx.partition_id;
         let (data_file_path, index_file_path) = LocalFileStore::gen_relative_path_for_partition(&uid);
 

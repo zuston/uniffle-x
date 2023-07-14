@@ -28,6 +28,7 @@ use crate::proto::uniffle::{ShuffleBlock, ShuffleData, ShuffleDataBlockSegment};
 use crate::store::ResponseDataIndex::local;
 use async_trait::async_trait;
 use crate::config::Config;
+use crate::error::DatanodeError;
 use crate::store::hybrid::HybridStore;
 use crate::store::memory::MemoryStore;
 
@@ -137,9 +138,9 @@ impl Into<ShuffleDataBlockSegment> for DataSegment {
 #[async_trait]
 pub trait Store {
     fn start(self: Arc<Self>);
-    async fn insert(&self, ctx: WritingViewContext) -> Result<()>;
-    async fn get(&self, ctx: ReadingViewContext) -> Result<ResponseData>;
-    async fn get_index(&self, ctx: ReadingIndexViewContext) -> Result<ResponseDataIndex>;
+    async fn insert(&self, ctx: WritingViewContext) -> Result<(), DatanodeError>;
+    async fn get(&self, ctx: ReadingViewContext) -> Result<ResponseData, DatanodeError>;
+    async fn get_index(&self, ctx: ReadingIndexViewContext) -> Result<ResponseDataIndex, DatanodeError>;
     async fn require_buffer(&self, ctx: RequireBufferContext) -> Result<(bool, i64)>;
     async fn purge(&self, app_id: String) -> Result<()>;
     async fn is_healthy(&self) -> Result<bool>;

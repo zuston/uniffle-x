@@ -24,6 +24,7 @@ use tracing::field::debug;
 use crate::await_tree::AWAIT_TREE_REGISTRY;
 use crate::config;
 use crate::config::{Config, HdfsStoreConfig, HybridStoreConfig, LocalfileStoreConfig, StorageType};
+use crate::error::DatanodeError;
 use crate::metric::{GAUGE_MEMORY_SPILL_OPERATION, GAUGE_MEMORY_SPILL_TO_HDFS, GAUGE_MEMORY_SPILL_TO_LOCALFILE, TOTAL_MEMORY_SPILL_OPERATION, TOTAL_MEMORY_SPILL_OPERATION_FAILED, TOTAL_MEMORY_SPILL_TO_HDFS, TOTAL_MEMORY_SPILL_TO_LOCALFILE};
 use crate::readable_size::ReadableSize;
 use crate::store::hdfs::HdfsStore;
@@ -259,7 +260,7 @@ impl Store for HybridStore {
         });
     }
 
-    async fn insert(&self, ctx: WritingViewContext) -> Result<()> {
+    async fn insert(&self, ctx: WritingViewContext) -> Result<(), DatanodeError> {
         let uid = ctx.uid.clone();
 
         let insert_result = self.hot_store.insert(ctx).await;
@@ -300,14 +301,14 @@ impl Store for HybridStore {
         insert_result
     }
 
-    async fn get(&self, ctx: ReadingViewContext) -> Result<ResponseData> {
+    async fn get(&self, ctx: ReadingViewContext) -> Result<ResponseData, DatanodeError> {
         match ctx.reading_options {
             ReadingOptions::MEMORY_LAST_BLOCK_ID_AND_MAX_SIZE(_, _) => self.hot_store.get(ctx).await,
             _ => self.warm_store.as_ref().unwrap().get(ctx).await
         }
     }
 
-    async fn get_index(&self, ctx: ReadingIndexViewContext) -> Result<ResponseDataIndex> {
+    async fn get_index(&self, ctx: ReadingIndexViewContext) -> Result<ResponseDataIndex, DatanodeError> {
         self.warm_store.as_ref().unwrap().get_index(ctx).await
     }
 
