@@ -21,6 +21,7 @@ use tokio::sync::{mpsc, Mutex, MutexGuard, oneshot, Semaphore};
 use tokio::sync::mpsc::Receiver;
 use tokio::task::JoinHandle;
 use tracing::field::debug;
+use tracing_subscriber::registry::Data;
 use crate::await_tree::AWAIT_TREE_REGISTRY;
 use crate::config;
 use crate::config::{Config, HdfsStoreConfig, HybridStoreConfig, LocalfileStoreConfig, StorageType};
@@ -129,7 +130,7 @@ impl HybridStore {
         store.is::<HdfsStore>()
     }
 
-    async fn memory_spill_to_persistent_store(&self, ctx: WritingViewContext, in_flight_blocks_id: i64) -> Result<String> {
+    async fn memory_spill_to_persistent_store(&self, ctx: WritingViewContext, in_flight_blocks_id: i64) -> Result<String, DatanodeError> {
         let uid = ctx.uid.clone();
         let blocks = &ctx.data_blocks;
         let mut spill_size = 0i64;
@@ -165,7 +166,20 @@ impl HybridStore {
 
         let message = format!("partition uid: {:?}, memory spilled size: {}", &ctx.uid, spill_size);
 
-        candidate_store.insert(ctx).await?;
+        // when throwing the data lost error, it should fast fail for this partition data.
+        let inserted = candidate_store.insert(ctx).await;
+        if let Err(err) = inserted {
+            match err {
+                DatanodeError::PARTIAL_DATA_LOST(msg) => {
+                    let err_msg = format!("Partial data has been lost. Let's abort this partition data. error: {}", &msg);
+                    error!("{}", err_msg)
+                },
+                others => {
+                    return Err(others)
+                }
+            }
+        }
+
         self.hot_store.release_in_flight_blocks_in_underlying_staging_buffer(uid, in_flight_blocks_id).await?;
         self.hot_store.free_memory(spill_size).await?;
 
@@ -245,11 +259,13 @@ impl Store for HybridStore {
                 GAUGE_MEMORY_SPILL_OPERATION.inc();
                 let store_cloned = store.clone();
                 tokio::spawn(await_root.instrument(async move {
-                    match store_cloned.memory_spill_to_persistent_store(message.ctx, message.id).await {
+                    match store_cloned.memory_spill_to_persistent_store(message.ctx.clone(), message.id).await {
                         Ok(msg) => debug!("{}", msg),
                         Err(error) => {
                             TOTAL_MEMORY_SPILL_OPERATION_FAILED.inc();
-                            error!("Errors on spilling memory data to localfile. error: {:#?}", error)
+                            error!("Errors on spilling memory data to localfile. error: {:#?}", error);
+                            // re-push to the queue to execute
+                            let _ = store_cloned.memory_spill_send.send(message).await;
                         }
                     }
                     store_cloned.memory_spill_event_num.dec_by(1);
@@ -583,6 +599,20 @@ mod tests {
             },
             _ => panic!()
         }
+    }
+
+    #[tokio::test]
+    async fn test_localfile_disk_corrupted() {
+        // when the local disk is corrupted, the data will be aborted.
+        // Anyway, this partition's data should be not reserved on the memory to effect other
+        // apps
+    }
+
+    #[tokio::test]
+    async fn test_localfile_disk_unhealthy() {
+        // when the local disk is unhealthy, the data should be flushed
+        // to the cold store(like hdfs). If not having cold, it will retry again
+        // then again.
     }
 
     #[tokio::test]
