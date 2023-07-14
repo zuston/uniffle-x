@@ -10,7 +10,7 @@ use async_trait::async_trait;
 use bytes::{BufMut, Bytes, BytesMut};
 use dashmap::DashMap;
 use futures::AsyncWriteExt;
-use hdrs::{Client};
+use hdrs::{Client, ClientBuilder};
 use log::{error, info};
 use tokio::sync::{Mutex, Semaphore};
 use tracing::debug;
@@ -283,7 +283,14 @@ impl HdfsDelegator for Hdrs {
 
 impl Hdrs {
     fn new(name_node: &str, krb5_cache: Option<String>, user: Option<String>) -> Result<Self> {
-        let client = Client::connect(name_node, user.unwrap().as_str(), krb5_cache.unwrap().as_str())?;
+        let mut builder = ClientBuilder::new(name_node);
+        if krb5_cache.is_some() {
+            builder = builder.with_kerberos_ticket_cache_path(krb5_cache.unwrap().as_str());
+        }
+        if user.is_some() {
+            builder = builder.with_user(user.unwrap().as_str())
+        }
+        let client = builder.connect()?;
         Ok(
             Hdrs {
                 client
