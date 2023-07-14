@@ -151,7 +151,7 @@ impl App {
         Ok(())
     }
 
-    pub async fn insert(&self, ctx: WritingViewContext) -> Result<()> {
+    pub async fn insert(&self, ctx: WritingViewContext) -> Result<(), DatanodeError> {
         let len: i32 = ctx.data_blocks.iter().map(|block| block.length).sum();
         self.get_underlying_partition_bitmap(ctx.uid.clone()).incr_data_size(len);
         TOTAL_RECEIVED_DATA.inc_by(len as u64);
@@ -159,11 +159,11 @@ impl App {
         self.store.insert(ctx).await
     }
 
-    pub async fn select(&self, ctx: ReadingViewContext) -> Result<ResponseData> {
+    pub async fn select(&self, ctx: ReadingViewContext) -> Result<ResponseData, DatanodeError> {
         self.store.get(ctx).await
     }
 
-    pub async fn list_index(&self, ctx: ReadingIndexViewContext) -> Result<ResponseDataIndex> {
+    pub async fn list_index(&self, ctx: ReadingIndexViewContext) -> Result<ResponseDataIndex, DatanodeError> {
         self.store.get_index(ctx).await
     }
 

@@ -12,16 +12,18 @@ use dashmap::DashMap;
 use futures::AsyncWriteExt;
 use hdrs::{Client, ClientBuilder};
 use log::{error, info};
-use tokio::sync::{Mutex, Semaphore};
+use tokio::sync::{AcquireError, Mutex, Semaphore};
 use tracing::debug;
 use crate::config::HdfsStoreConfig;
 use url::{Url, ParseError};
 use url::form_urlencoded::parse;
-use anyhow::{anyhow, Result};
+use anyhow::{anyhow, Error, Result};
 use async_channel::Sender;
 use await_tree::InstrumentAwait;
 use futures::future::select;
 use toml::map::Entry;
+use crate::error::DatanodeError;
+use crate::error::DatanodeError::Other;
 use crate::metric::{TOTAL_HDFS_USED, TOTAL_MEMORY_SPILL_TO_HDFS};
 
 struct PartitionCachedMeta {
@@ -108,7 +110,7 @@ impl Store for HdfsStore {
         info!("There is nothing to do in hdfs store");
     }
 
-    async fn insert(&self, ctx: WritingViewContext) -> anyhow::Result<()> {
+    async fn insert(&self, ctx: WritingViewContext) -> Result<(), DatanodeError> {
 
         let uid = ctx.uid;
         let data_blocks = ctx.data_blocks;
@@ -119,7 +121,7 @@ impl Store for HdfsStore {
             self.concurrency_access_limiter
                 .acquire()
                 .instrument_await(format!("hdfs concurrency limiter. path: {}", data_file_path))
-                .await?;
+                .await.map_err(|e| DatanodeError::from(e))?;
 
         let lock_cloned = self.partition_file_locks.entry(data_file_path.clone()).or_insert_with(|| Arc::new(Mutex::new(()))).clone();
         let lock_guard = lock_cloned.lock().instrument_await(format!("hdfs partition file lock. path: {}", data_file_path)).await;
@@ -185,19 +187,19 @@ impl Store for HdfsStore {
         Ok(())
     }
 
-    async fn get(&self, ctx: ReadingViewContext) -> anyhow::Result<ResponseData> {
+    async fn get(&self, ctx: ReadingViewContext) -> Result<ResponseData, DatanodeError> {
         todo!()
     }
 
-    async fn get_index(&self, ctx: ReadingIndexViewContext) -> anyhow::Result<ResponseDataIndex> {
+    async fn get_index(&self, ctx: ReadingIndexViewContext) -> Result<ResponseDataIndex, DatanodeError> {
         todo!()
     }
 
-    async fn require_buffer(&self, ctx: RequireBufferContext) -> anyhow::Result<(bool, i64)> {
+    async fn require_buffer(&self, ctx: RequireBufferContext) -> Result<(bool, i64)> {
         todo!()
     }
 
-    async fn purge(&self, app_id: String) -> anyhow::Result<()> {
+    async fn purge(&self, app_id: String) -> Result<()> {
         let app_dir = self.get_app_dir(app_id.as_str());
 
         let keys_to_delete: Vec<_> = self.partition_file_locks
