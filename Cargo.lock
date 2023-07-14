@@ -726,11 +726,10 @@ dependencies = [
 
 [[package]]
 name = "hdrs"
-version = "0.2.0"
-source = "git+https://github.com/zuston/hdrs.git?branch=kerberos-draft#98fa5b24dbf756a40504134b467e15e386c89542"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "dd139e8f6c58950322dc73060b8c23b80be07d235dd2eaf5c7c821c1d91eb469"
 dependencies = [
- "anyhow",
- "async-lock",
  "blocking",
  "errno",
  "futures",
