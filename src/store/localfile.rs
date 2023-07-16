@@ -19,6 +19,7 @@ use async_trait::async_trait;
 use await_tree::InstrumentAwait;
 use futures::future::err;
 use log::{debug, error, info, warn};
+use log::Level::Error;
 use tokio::sync::{RwLock, Semaphore};
 use tonic::codegen::ok;
 use tracing_subscriber::registry::Data;
@@ -284,6 +285,11 @@ impl Store for LocalFileStore {
         }
 
         let local_disk = local_disk.unwrap();
+
+        if local_disk.is_corrupted()? {
+            return Err(DatanodeError::LOCAL_DISK_OWNED_BY_PARTITION_CORRUPTED(local_disk.base_path.to_string()));
+        }
+
         let data = local_disk.read(data_file_path, offset, Some(len)).await?;
         Ok(ResponseData::local(PartitionedLocalData {
             data
@@ -308,6 +314,10 @@ impl Store for LocalFileStore {
         }
 
         let local_disk = local_disk.unwrap();
+
+        if local_disk.is_corrupted()? {
+            return Err(DatanodeError::LOCAL_DISK_OWNED_BY_PARTITION_CORRUPTED(local_disk.base_path.to_string()));
+        }
 
         let index_data_result = local_disk.read(index_file_path, 0, None).await?;
         let len = local_disk.get_file_len(data_file_path).await?;
