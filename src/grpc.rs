@@ -1,5 +1,6 @@
 use std::ops::Deref;
 use bytes::{BufMut, BytesMut};
+use futures::future::err;
 use log::{debug, error, info, warn};
 use toml::Value::String;
 use tonic::{Request, Response, Status};
@@ -142,10 +143,23 @@ impl ShuffleServer for DefaultShuffleServer {
         let app = app_option.unwrap();
 
         let data_index_wrapper = app.list_index(ReadingIndexViewContext {
-            partition_id: PartitionedUId::from(app_id, shuffle_id, partition_id)
-        }).await.unwrap();
+            partition_id: PartitionedUId::from(app_id.to_string(), shuffle_id, partition_id)
+        }).await;
 
-        match data_index_wrapper {
+        if data_index_wrapper.is_err() {
+            let error_msg = data_index_wrapper.err();
+            error!("Errors on getting localfile data index for app:[{}], error: {:?}", &app_id, error_msg);
+            return Ok(
+                Response::new(GetLocalShuffleIndexResponse {
+                    index_data: Default::default(),
+                    status: StatusCode::INTERNAL_ERROR.into(),
+                    ret_msg: format!("{:?}", error_msg),
+                    data_file_len: 0,
+                })
+            );
+        }
+
+        match data_index_wrapper.unwrap() {
             ResponseDataIndex::local(data_index) => {
                 Ok(
                     Response::new(GetLocalShuffleIndexResponse {
@@ -184,19 +198,29 @@ impl ShuffleServer for DefaultShuffleServer {
             );
         }
 
-        let data = app.unwrap().select(ReadingViewContext {
+        let data_fetched_result = app.unwrap().select(ReadingViewContext {
             uid: PartitionedUId {
-                app_id,
+                app_id: app_id.to_string(),
                 shuffle_id,
                 partition_id
             },
             reading_options: ReadingOptions::FILE_OFFSET_AND_LEN(
                 req.offset, req.length as i64
             )
-        }).await.unwrap();
+        }).await;
+
+        if data_fetched_result.is_err() {
+            let err_msg = data_fetched_result.err();
+            error!("Errors on getting localfile index for app:[{}], error: {:?}", &app_id, err_msg);
+            return Ok(Response::new(GetLocalShuffleDataResponse {
+                data: Default::default(),
+                status: StatusCode::INTERNAL_ERROR.into(),
+                ret_msg: format!("{:?}", err_msg),
+            }));
+        }
         
         Ok(Response::new(GetLocalShuffleDataResponse {
-            data: data.from_local(),
+            data: data_fetched_result.unwrap().from_local(),
             status: StatusCode::SUCCESS.into(),
             ret_msg: "".to_string()
         }))
@@ -220,18 +244,29 @@ impl ShuffleServer for DefaultShuffleServer {
             );
         }
 
-        let data = app.unwrap().select(ReadingViewContext {
+        let data_fetched_result = app.unwrap().select(ReadingViewContext {
             uid: PartitionedUId {
-                app_id,
+                app_id: app_id.to_string(),
                 shuffle_id,
                 partition_id
             },
             reading_options: ReadingOptions::MEMORY_LAST_BLOCK_ID_AND_MAX_SIZE(
                 req.last_block_id, req.read_buffer_size as i64
             )
-        }).await.unwrap();
+        }).await;
 
-        let data = data.from_memory();
+        if data_fetched_result.is_err() {
+            let error_msg = data_fetched_result.err();
+            error!("Errors on getting data from memory for [{}], error: {:?}", &app_id, error_msg);
+            return Ok(Response::new(GetMemoryShuffleDataResponse {
+                shuffle_data_block_segments: vec![],
+                data: Default::default(),
+                status: StatusCode::INTERNAL_ERROR.into(),
+                ret_msg: format!("{:?}", error_msg),
+            }));
+        }
+
+        let data = data_fetched_result.unwrap().from_memory();
 
         Ok(Response::new(GetMemoryShuffleDataResponse {
             shuffle_data_block_segments: data.shuffle_data_block_segments.into_iter().map(|x| x.into()).collect(),
