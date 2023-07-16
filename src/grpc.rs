@@ -437,9 +437,7 @@ impl ShuffleServer for DefaultShuffleServer {
                 })
             );
         }
-        let app = app.unwrap();
-
-        let (is_ok, id) = app.require_buffer(RequireBufferContext {
+        let app = app.unwrap().require_buffer(RequireBufferContext {
             uid: PartitionedUId {
                 app_id,
                 shuffle_id,
@@ -447,18 +445,21 @@ impl ShuffleServer for DefaultShuffleServer {
                 partition_id: 1
             },
             size: req.require_size as i64
-        }).await.unwrap();
+        }).await;
 
-        let mut status_code = 0;
-        if !is_ok {
-            // 2 = No buffer
-            status_code = 2;
-        }
+        let res = match app {
+            Ok(requiredBufferRes) => {
+                (StatusCode::SUCCESS, requiredBufferRes.ticket_id, "".to_string())
+            },
+            Err(err) => {
+                (StatusCode::NO_BUFFER, -1i64, format!("{:?}", err))
+            }
+        };
 
         Ok(Response::new(RequireBufferResponse {
-            require_buffer_id: id,
-            status: status_code,
-            ret_msg: "".to_string()
+            require_buffer_id: res.1,
+            status: res.0.into(),
+            ret_msg: res.2
         }))
     }
 

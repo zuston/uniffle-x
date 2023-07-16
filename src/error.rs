@@ -21,6 +21,12 @@ pub enum DatanodeError {
     #[error("Local disk:[{0}] owned by current partition has been corrupted")]
     LOCAL_DISK_OWNED_BY_PARTITION_CORRUPTED(String),
 
+    #[error("No enough memory to be allocated.")]
+    NO_ENOUGH_MEMORY_TO_BE_ALLOCATED,
+
+    #[error("The memory usage is limited by huge partition mechanism")]
+    MEMORY_USAGE_LIMITED_BY_HUGE_PARTITION,
+
     #[error(transparent)]
     Other(#[from] anyhow::Error),
 }

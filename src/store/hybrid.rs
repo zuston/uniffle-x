@@ -8,7 +8,7 @@ use std::sync::{Arc};
 use std::time::Duration;
 use crate::app::{PartitionedUId, ReadingIndexViewContext, ReadingOptions, ReadingViewContext, RequireBufferContext, WritingViewContext};
 use crate::store::memory::{MemorySnapshot, MemoryStore, StagingBuffer};
-use crate::store::{Persistent, ResponseData, ResponseDataIndex, Store};
+use crate::store::{Persistent, RequireBufferResponse, ResponseData, ResponseDataIndex, Store};
 use crate::store::localfile::LocalFileStore;
 use async_trait::async_trait;
 use anyhow::{Result, anyhow, Error};
@@ -328,7 +328,7 @@ impl Store for HybridStore {
         self.warm_store.as_ref().unwrap().get_index(ctx).await
     }
 
-    async fn require_buffer(&self, ctx: RequireBufferContext) -> Result<(bool, i64)> {
+    async fn require_buffer(&self, ctx: RequireBufferContext) -> Result<RequireBufferResponse, DatanodeError> {
         self.hot_store.require_buffer(ctx).await
     }
 

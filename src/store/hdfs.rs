@@ -5,7 +5,7 @@ use std::path::Path;
 use std::sync::Arc;
 use std::sync::atomic::AtomicI64;
 use crate::app::{PartitionedUId, ReadingIndexViewContext, ReadingViewContext, RequireBufferContext, WritingViewContext};
-use crate::store::{Persistent, ResponseData, ResponseDataIndex, Store};
+use crate::store::{Persistent, RequireBufferResponse, ResponseData, ResponseDataIndex, Store};
 use async_trait::async_trait;
 use bytes::{BufMut, Bytes, BytesMut};
 use dashmap::DashMap;
@@ -22,6 +22,7 @@ use async_channel::Sender;
 use await_tree::InstrumentAwait;
 use futures::future::select;
 use toml::map::Entry;
+use tracing_subscriber::registry::Data;
 use crate::error::DatanodeError;
 use crate::error::DatanodeError::Other;
 use crate::metric::{TOTAL_HDFS_USED, TOTAL_MEMORY_SPILL_TO_HDFS};
@@ -195,7 +196,7 @@ impl Store for HdfsStore {
         todo!()
     }
 
-    async fn require_buffer(&self, ctx: RequireBufferContext) -> Result<(bool, i64)> {
+    async fn require_buffer(&self, ctx: RequireBufferContext) -> Result<RequireBufferResponse, DatanodeError> {
         todo!()
     }
 

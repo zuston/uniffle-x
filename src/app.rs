@@ -19,6 +19,7 @@ use dashmap::mapref::one::{Ref, RefMut};
 use log::{debug, error, info};
 use tokio::runtime::Runtime;
 use tokio::sync::RwLock;
+use tokio_rustls::rustls::internal::msgs::enums::AlertDescription::InappropriateFallback;
 use tonic::codegen::ok;
 use crate::config::Config;
 use crate::error::DatanodeError;
@@ -26,7 +27,7 @@ use crate::metric::{GAUGE_APP_NUMBER, GAUGE_PARTITION_NUMBER, TOTAL_APP_NUMBER, 
 use crate::proto::uniffle::ShuffleData;
 use crate::readable_size::ReadableSize;
 use crate::store;
-use crate::store::{PartitionedData, PartitionedDataBlock, ResponseData, ResponseDataIndex, Store, StoreProvider};
+use crate::store::{PartitionedData, PartitionedDataBlock, RequireBufferResponse, ResponseData, ResponseDataIndex, Store, StoreProvider};
 use crate::store::hybrid::HybridStore;
 use crate::store::memory::{MemorySnapshot, MemoryStore};
 use crate::util::current_timestamp_sec;
@@ -187,20 +188,13 @@ impl App {
         }
     }
 
-    pub async fn require_buffer(&self, ctx: RequireBufferContext) -> Result<(bool, i64)> {
-        let (succeed, id) = if self.huge_partition_limit(&ctx.uid).await? {
-            (false, -1)
-        } else {
-            self.store.require_buffer(ctx).await?
-        };
-
-        if !succeed {
+    pub async fn require_buffer(&self, ctx: RequireBufferContext) -> Result<RequireBufferResponse, DatanodeError> {
+        if self.huge_partition_limit(&ctx.uid).await? {
             TOTAL_REQUIRE_BUFFER_FAILED.inc();
+            return Err(DatanodeError::MEMORY_USAGE_LIMITED_BY_HUGE_PARTITION);
         }
 
-        Ok(
-            (succeed, id)
-        )
+        self.store.require_buffer(ctx).await
     }
 
     fn get_underlying_partition_bitmap(&self, uid: PartitionedUId) -> PartitionedMeta {
