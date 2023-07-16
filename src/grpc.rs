@@ -339,18 +339,30 @@ impl ShuffleServer for DefaultShuffleServer {
             );
         }
 
-        let data = app.unwrap().get_block_ids(GetBlocksContext {
+        let block_ids_result = app.unwrap().get_block_ids(GetBlocksContext {
             uid: PartitionedUId {
-                app_id,
+                app_id: app_id.to_string(),
                 shuffle_id,
                 partition_id
             }
-        }).await.unwrap();
+        }).await;
+
+        if block_ids_result.is_err() {
+            let err_msg = block_ids_result.err();
+            error!("Errors on getting shuffle block ids for app:[{}], error: {:?}", &app_id, err_msg);
+            return Ok(
+                Response::new(GetShuffleResultResponse {
+                    status: StatusCode::INTERNAL_ERROR.into(),
+                    ret_msg: format!("{:?}", err_msg),
+                    serialized_bitmap: Default::default(),
+                })
+            );
+        }
 
         Ok(Response::new(GetShuffleResultResponse {
             status: StatusCode::SUCCESS.into(),
             ret_msg: "".to_string(),
-            serialized_bitmap: data
+            serialized_bitmap: block_ids_result.unwrap()
         }))
     }
 
@@ -373,14 +385,23 @@ impl ShuffleServer for DefaultShuffleServer {
 
         let mut bytes_mut = BytesMut::new();
         for partition_id in req.partitions {
-            let data = app.get_block_ids(GetBlocksContext {
+            let block_ids_result = app.get_block_ids(GetBlocksContext {
                 uid: PartitionedUId {
                     app_id: app_id.clone(),
                     shuffle_id,
                     partition_id
                 }
-            }).await.unwrap();
-            bytes_mut.put(data);
+            }).await;
+            if block_ids_result.is_err() {
+                let err_msg = block_ids_result.err();
+                error!("Errors on getting shuffle block ids by multipart way of app:[{}], error: {:?}", &app_id, err_msg);
+                return Ok(Response::new(GetShuffleResultForMultiPartResponse {
+                    status: StatusCode::INTERNAL_ERROR.into(),
+                    ret_msg: format!("{:?}", err_msg),
+                    serialized_bitmap: Default::default(),
+                }));
+            }
+            bytes_mut.put(block_ids_result.unwrap());
         }
 
 
