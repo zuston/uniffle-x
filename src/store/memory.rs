@@ -10,7 +10,7 @@ use dashmap::DashMap;
 use crate::*;
 use crate::app::{PartitionedUId, ReadingIndexViewContext, ReadingViewContext, RequireBufferContext, WritingViewContext};
 use crate::app::ReadingOptions::MEMORY_LAST_BLOCK_ID_AND_MAX_SIZE;
-use crate::store::{DataSegment, PartitionedDataBlock, PartitionedMemoryData, ResponseData, ResponseDataIndex, Store};
+use crate::store::{DataSegment, PartitionedDataBlock, PartitionedMemoryData, RequireBufferResponse, ResponseData, ResponseDataIndex, Store};
 use async_trait::async_trait;
 use tokio::sync::Mutex;
 use crate::config::MemoryStoreConfig;
@@ -22,6 +22,7 @@ pub struct MemoryStore {
     // todo: change to RW lock
     state: DashMap<String, DashMap<i32, DashMap<i32, Arc<Mutex<StagingBuffer>>>>>,
     budget: MemoryBudget,
+    // key: app_id, value: allocated memory size
     memory_allocated_of_app: DashMap<String, i64>,
     memory_capacity: i64,
 }
@@ -293,13 +294,18 @@ impl Store for MemoryStore {
         panic!("It should not be invoked.")
     }
 
-    async fn require_buffer(&self, ctx: RequireBufferContext) -> Result<(bool, i64)> {
-        let result = self.budget.pre_allocate(ctx.size).await;
-        if result.is_ok() {
-            let mut val = self.memory_allocated_of_app.entry(ctx.uid.app_id).or_insert_with(||0);
-            *val += ctx.size;
+    async fn require_buffer(&self, ctx: RequireBufferContext) -> Result<RequireBufferResponse, DatanodeError> {
+        let (succeed, ticket_id) = self.budget.pre_allocate(ctx.size).await?;
+        match succeed {
+            true => {
+                let mut val = self.memory_allocated_of_app.entry(ctx.uid.app_id).or_insert_with(||0);
+                *val += ctx.size;
+                Ok(RequireBufferResponse::new(ticket_id))
+            },
+            _ => {
+                Err(DatanodeError::NO_ENOUGH_MEMORY_TO_BE_ALLOCATED)
+            }
         }
-        result
     }
 
     async fn purge(&self, app_id: String) -> Result<()> {
@@ -667,7 +673,7 @@ mod test {
             size: 10000
         };
         match store.require_buffer(ctx).await {
-            Ok((_, _)) => {
+            Ok(_) => {
                 store.purge("100".to_string()).await;
             }
             _ => panic!()

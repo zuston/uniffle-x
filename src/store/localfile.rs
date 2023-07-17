@@ -14,7 +14,7 @@ use anyhow::Result;
 use bytes::{BufMut, Bytes, BytesMut};
 use tokio::fs::OpenOptions;
 use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt};
-use crate::store::{LocalDataIndex, PartitionedLocalData, Persistent, ResponseData, ResponseDataIndex, Store};
+use crate::store::{LocalDataIndex, PartitionedLocalData, Persistent, RequireBufferResponse, ResponseData, ResponseDataIndex, Store};
 use async_trait::async_trait;
 use await_tree::InstrumentAwait;
 use futures::future::err;
@@ -327,8 +327,8 @@ impl Store for LocalFileStore {
         }))
     }
 
-    async fn require_buffer(&self, ctx: RequireBufferContext) -> Result<(bool, i64)> {
-        panic!("It should not happen")
+    async fn require_buffer(&self, ctx: RequireBufferContext) -> Result<RequireBufferResponse, DatanodeError> {
+        todo!()
     }
 
     async fn purge(&self, app_id: String) -> Result<()> {

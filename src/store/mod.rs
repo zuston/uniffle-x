@@ -31,6 +31,7 @@ use crate::config::Config;
 use crate::error::DatanodeError;
 use crate::store::hybrid::HybridStore;
 use crate::store::memory::MemoryStore;
+use crate::util::current_timestamp_sec;
 
 #[derive(Debug)]
 pub struct PartitionedData {
@@ -135,13 +136,30 @@ impl Into<ShuffleDataBlockSegment> for DataSegment {
 
 // =====================================================
 
+#[derive(Clone, Debug)]
+pub struct RequireBufferResponse {
+    pub ticket_id: i64,
+    pub allocated_timestamp: u64
+}
+
+impl RequireBufferResponse {
+    fn new(ticket_id: i64) -> Self {
+        Self {
+            ticket_id,
+            allocated_timestamp: current_timestamp_sec(),
+        }
+    }
+}
+
+// =====================================================
+
 #[async_trait]
 pub trait Store {
     fn start(self: Arc<Self>);
     async fn insert(&self, ctx: WritingViewContext) -> Result<(), DatanodeError>;
     async fn get(&self, ctx: ReadingViewContext) -> Result<ResponseData, DatanodeError>;
     async fn get_index(&self, ctx: ReadingIndexViewContext) -> Result<ResponseDataIndex, DatanodeError>;
-    async fn require_buffer(&self, ctx: RequireBufferContext) -> Result<(bool, i64)>;
+    async fn require_buffer(&self, ctx: RequireBufferContext) -> Result<RequireBufferResponse, DatanodeError>;
     async fn purge(&self, app_id: String) -> Result<()>;
     async fn is_healthy(&self) -> Result<bool>;
 }
