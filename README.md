@@ -23,6 +23,8 @@ spark.rss.storage.type MEMORY_LOCALFILE
 
 uniffle grpc-based server's conf
 ``` 
+JVM XMX=130g
+
 ...
 rss.server.buffer.capacity 100g
 rss.server.read.buffer.capacity 20g
