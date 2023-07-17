@@ -673,7 +673,7 @@ mod test {
             size: 10000
         };
         match store.require_buffer(ctx).await {
-            Ok((_, _)) => {
+            Ok(_) => {
                 store.purge("100".to_string()).await;
             }
             _ => panic!()
