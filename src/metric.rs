@@ -1,11 +1,8 @@
-use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::time::Duration;
 use lazy_static::lazy_static;
 use log::{error, info};
 
-use prometheus::{HistogramOpts, HistogramVec, IntCounter, IntCounterVec, IntGauge, labels, Opts, Registry};
-use tracing_subscriber::fmt::time;
-use warp::{Filter, Rejection, Reply};
+use prometheus::{IntCounter, IntGauge, labels, Registry};
 use crate::config::MetricsConfig;
 
 lazy_static! {
@@ -64,56 +61,18 @@ fn register_custom_metrics() {
     REGISTRY.register(Box::new(GAUGE_MEMORY_SPILL_TO_HDFS.clone())).expect("memory_spill_to_hdfs must be registered");
 }
 
-async fn metrics_handler() -> Result<impl Reply, Rejection> {
-    use prometheus::Encoder;
-    let encoder = prometheus::TextEncoder::new();
-
-    let mut buffer = Vec::new();
-    if let Err(e) = encoder.encode(&REGISTRY.gather(), &mut buffer) {
-        error!("could not encode custom metrics: {:?}", e);
-    };
-    let mut res = match String::from_utf8(buffer.clone()) {
-        Ok(v) => v,
-        Err(e) => {
-            error!("custom metrics could not be from_utf8'd: {:?}", e);
-            String::default()
-        }
-    };
-    buffer.clear();
-
-    let mut buffer = Vec::new();
-    if let Err(e) = encoder.encode(&prometheus::gather(), &mut buffer) {
-        error!("could not encode prometheus metrics: {:?}", e);
-    };
-    let res_custom = match String::from_utf8(buffer.clone()) {
-        Ok(v) => v,
-        Err(e) => {
-            error!("prometheus metrics could not be from_utf8'd: {}", e);
-            String::default()
-        }
-    };
-    buffer.clear();
-
-    res.push_str(&res_custom);
-    Ok(res)
-}
-
-pub fn start_metric_service(metric_config: &Option<MetricsConfig>, datanode_uid: String) {
+pub fn configure_metric_service(
+    metric_config: &Option<MetricsConfig>, datanode_uid: String) -> bool {
     if metric_config.is_none() {
-        return;
+        return false;
     }
 
     register_custom_metrics();
 
-    let default_http_port = 19998;
     let job_name = "uniffle-datanode";
 
     let cfg = metric_config.clone().unwrap();
 
-    let metrics_route = warp::path!("metrics").and_then(metrics_handler);
-
-    let http_port = cfg.http_port.unwrap_or(default_http_port).clone();
-    info!("Starting metric service with port:[{}] ......", http_port);
 
     let push_gateway_endpoint = cfg.push_gateway_endpoint;
 
@@ -143,10 +102,5 @@ pub fn start_metric_service(metric_config: &Option<MetricsConfig>, datanode_uid:
             }
         });
     }
-
-    tokio::spawn(async move {
-        warp::serve(metrics_route)
-            .run(SocketAddr::new(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)), http_port as u16))
-            .await;
-    });
+    return true;
 }

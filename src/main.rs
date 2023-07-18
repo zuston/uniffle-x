@@ -2,27 +2,24 @@ extern crate core;
 
 use std::borrow::BorrowMut;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
-use std::rc::Rc;
-use std::sync::Arc;
 use std::time::Duration;
 use tonic::transport::{Channel, Server};
 use crate::app::{AppManager, AppManagerRef};
 use crate::grpc::DefaultShuffleServer;
 use crate::proto::uniffle::shuffle_server_server::ShuffleServerServer;
-use anyhow::{Result, anyhow};
-use async_trait::async_trait;
+use anyhow::Result;
 use futures::StreamExt;
 use log::info;
 use tracing_appender::non_blocking::WorkerGuard;
 use tracing_subscriber::{EnvFilter, fmt, Registry};
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
-use crate::config::{Config, LogConfig, MetricsConfig, RotationConfig};
-use crate::metric::start_metric_service;
+use crate::config::{Config, LogConfig, RotationConfig};
+use crate::metric::configure_metric_service;
+use crate::http::http_service::{HTTPServer,new_server};
 use crate::proto::uniffle::coordinator_server_client::CoordinatorServerClient;
-use crate::proto::uniffle::{ShuffleServerHeartBeatRequest, ShuffleServerId, StatusCode};
-use crate::store::ResponseData::mem;
-use crate::util::get_local_ip;
+use crate::proto::uniffle::{ShuffleServerHeartBeatRequest, ShuffleServerId};
+use crate::util::{gen_datanode_uid,get_local_ip};
 
 pub mod proto;
 pub mod app;
@@ -31,6 +28,7 @@ pub mod grpc;
 mod error;
 mod config;
 mod metric;
+mod http;
 mod util;
 mod readable_size;
 mod await_tree;
@@ -127,11 +125,6 @@ fn init_log(log: &LogConfig) -> WorkerGuard {
     _guard
 }
 
-fn gen_datanode_uid(grpc_port: i32) -> String {
-    let ip = get_local_ip().unwrap().to_string();
-    format!("{}-{}", ip.clone(), grpc_port)
-}
-
 #[tokio::main]
 async fn main() -> Result<()> {
     let config = Config::create_from_env();
@@ -143,8 +136,13 @@ async fn main() -> Result<()> {
     let rpc_port = config.grpc_port.unwrap_or(19999);
     let datanode_uid = gen_datanode_uid(rpc_port);
 
+    let metric_config = config.metrics.clone();
     // start metric service to expose http api
-    start_metric_service(&config.metrics, datanode_uid.clone());
+    let start_http_service = configure_metric_service(&metric_config, datanode_uid.clone());
+    if start_http_service {
+        let mut server = new_server(metric_config.unwrap().http_port.unwrap_or(19998) as u16);
+        server.start();
+    }
 
     let coordinator_quorum = config.coordinator_quorum.clone();
     let tags = config.tags.clone().unwrap_or(vec![]);
