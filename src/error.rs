@@ -2,6 +2,7 @@ use std::fmt::{Display, Formatter, Write};
 use anyhow::Error;
 use crossbeam_channel::SendError;
 use log::error;
+use poem::error::ParseQueryError;
 use thiserror::Error;
 use tokio::sync::AcquireError;
 use crate::app::PurgeEvent;
@@ -36,6 +37,12 @@ pub enum DatanodeError {
 
 impl From<AcquireError> for DatanodeError {
     fn from(error: AcquireError) -> Self {
+        Other(Error::new(error))
+    }
+}
+
+impl From<ParseQueryError> for DatanodeError {
+    fn from(error: ParseQueryError) -> Self {
         Other(Error::new(error))
     }
 }

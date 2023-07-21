@@ -1,7 +1,7 @@
 use log::error;
 use std::num::NonZeroI32;
 use std::time::Duration;
-use poem::{get, RouteMethod};
+use poem::{get, Request, RouteMethod, handler};
 use poem::endpoint::{make, make_sync};
 use serde::{Deserialize,Serialize};
 use tokio::time::sleep as delay_for;
@@ -27,8 +27,9 @@ impl Default for PProfRequest {
     }
 }
 
-async fn pprof() -> poem::Result<Vec<u8>, DatanodeError> {
-    let req = PProfRequest::default();
+#[handler]
+async fn pprof_handler(req: &Request) -> poem::Result<Vec<u8>, DatanodeError> {
+    let req = req.params::<PProfRequest>()?;
     let mut body: Vec<u8> = Vec::new();
 
     let guard = ProfilerGuard::new(req.frequency.into()).map_err(|e| {
@@ -57,17 +58,43 @@ async fn pprof() -> poem::Result<Vec<u8>, DatanodeError> {
 }
 
 pub struct PProfHandler {}
+
 impl Default for PProfHandler {
     fn default() -> Self {
         Self {}
     }
 }
+
 impl Handler for PProfHandler {
     fn get_route_method(&self) -> RouteMethod {
-        get(make(|_| pprof()))
+        RouteMethod::new().get(pprof_handler)
     }
 
     fn get_route_path(&self) -> String {
         "/debug/pprof/profile".to_string()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use poem::Route;
+    use poem::test::TestClient;
+    use crate::http::Handler;
+    use crate::http::pprof::PProfHandler;
+
+    #[tokio::test]
+    async fn test_router() {
+        let handler = PProfHandler::default();
+        let app = Route::new().at(
+            handler.get_route_path(),
+            handler.get_route_method()
+        );
+        let cli = TestClient::new(app);
+        let resp = cli.get("/debug/pprof/profile")
+            .query("seconds", &4)
+            .query("frequency", &100)
+            .send()
+            .await;
+        resp.assert_status_is_ok();
     }
 }
