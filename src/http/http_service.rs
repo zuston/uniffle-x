@@ -1,52 +1,68 @@
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
-use warp::Filter;
+use std::sync::Mutex;
 use log::info;
+use poem::{get, Route, RouteMethod, Server};
+use poem::endpoint::make_sync;
+use anyhow::Result;
+use poem::error::ResponseError;
+use poem::http::StatusCode;
+use poem::listener::TcpListener;
+use crate::error::DatanodeError;
 
-use crate::http::metrics::metrics_handler;
-use crate::http::pprof::{PProfRequest, pprof_handler};
+use crate::http::{Handler, HTTPServer};
 
-pub trait HTTPServer: Send {
-    fn start(&mut self);
+impl ResponseError for DatanodeError {
+    fn status(&self) -> StatusCode {
+        StatusCode::BAD_REQUEST
+    }
 }
 
-pub fn new_server(port: u16) -> impl HTTPServer {
-    WarpServer::new(port)
+struct IndexPageHandler {}
+impl Handler for IndexPageHandler {
+    fn get_route_method(&self) -> RouteMethod {
+        get(make_sync(|_| "Hello uniffle server"))
+    }
+
+    fn get_route_path(&self) -> String {
+        "/".to_string()
+    }
 }
 
-struct WarpServer {
-    port: u16,
+pub struct PoemHTTPServer {
+    handlers: Mutex<Vec<Box<dyn Handler>>>,
 }
 
-impl WarpServer {
-    fn new(port: u16) -> Self {
-        WarpServer {
-            port,
+unsafe impl Send for PoemHTTPServer {}
+unsafe impl Sync for PoemHTTPServer {}
+
+impl PoemHTTPServer {
+    pub fn new() -> Self {
+        let handlers: Vec<Box<dyn Handler>> = vec![
+            Box::new(IndexPageHandler {})
+        ];
+        Self {
+            handlers: Mutex::new(handlers),
         }
     }
 }
 
-impl HTTPServer for WarpServer {
-    fn start(&mut self) {
-        let hello_world = warp::path::end().map(|| "Hello uniffle server");
-
-        // todo: maybe we should replace warp with other rest framework, it's super weired to
-        //   support conditional routing.
-        let metrics_route = warp::get()
-            .and(warp::path("metrics"))
-            .and_then(metrics_handler);
-
-        let pprof_route = warp::get()
-            .and(warp::path!("debug" / "pprof" / "profile"))
-            .and(warp::query::<PProfRequest>())
-            .and_then(pprof_handler);
-
-        let routes = hello_world.or(metrics_route).or(pprof_route);
-        let port = self.port;
-        info!("Starting http service with port:[{}] ......", port);
+impl HTTPServer for PoemHTTPServer {
+    fn start(&self, port: u16) {
+        let mut app = Route::new();
+        let handlers = self.handlers.lock().unwrap();
+        for handler in handlers.iter() {
+            app = app.at(handler.get_route_path(), handler.get_route_method());
+        }
         tokio::spawn(async move {
-            warp::serve(routes)
-                .run(SocketAddr::new(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)), port))
+            let _ = Server::new(TcpListener::bind(format!("0.0.0.0:{}", port)))
+                .name("uniffle-server-http-service")
+                .run(app)
                 .await;
         });
+    }
+
+    fn register_handler(&self, handler: impl Handler + 'static) {
+        let mut handlers = self.handlers.lock().unwrap();
+        handlers.push(Box::new(handler));
     }
 }

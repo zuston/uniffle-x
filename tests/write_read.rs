@@ -28,7 +28,6 @@ mod tests {
             hdfs_store: None,
             store_type: Some(StorageType::MEMORY_LOCALFILE),
             metrics: Some(MetricsConfig {
-                http_port: Some(8080),
                 push_gateway_endpoint: None,
                 push_interval_sec: None,
             }),
@@ -38,7 +37,8 @@ mod tests {
             log: None,
             app_heartbeat_timeout_min: None,
             huge_partition_marked_threshold: None,
-            huge_partition_memory_max_used_percent: None
+            huge_partition_memory_max_used_percent: None,
+            http_monitor_service_port: None,
         }
     }
 

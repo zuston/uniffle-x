@@ -1,11 +1,15 @@
 use log::error;
 use std::num::NonZeroI32;
 use std::time::Duration;
+use poem::{get, RouteMethod};
+use poem::endpoint::{make, make_sync};
 use serde::{Deserialize,Serialize};
 use tokio::time::sleep as delay_for;
 use pprof::ProfilerGuard;
 use pprof::protos::Message;
-use warp::{Rejection, Reply};
+use tracing_subscriber::fmt::format;
+use crate::error::DatanodeError;
+use crate::http::Handler;
 
 #[derive(Deserialize, Serialize)]
 #[serde(default)]
@@ -23,26 +27,47 @@ impl Default for PProfRequest {
     }
 }
 
-pub async fn pprof_handler(req: PProfRequest) -> Result<impl Reply, Rejection> {
+async fn pprof() -> poem::Result<Vec<u8>, DatanodeError> {
+    let req = PProfRequest::default();
     let mut body: Vec<u8> = Vec::new();
 
     let guard = ProfilerGuard::new(req.frequency.into()).map_err(|e| {
-        error!("could not start profiling: {:?}", e);
-        warp::reject::reject()
+        let msg = format!("could not start profiling: {:?}", e);
+        error!("{}", msg);
+        DatanodeError::HTTP_SERVICE_ERROR(msg)
     })?;
     delay_for(Duration::from_secs(req.seconds)).await;
     let report = guard.report().build().map_err(|e| {
-        error!("could not build profiling report: {:?}", e);
-        warp::reject::reject()
+        let msg = format!("could not build profiling report: {:?}", e);
+        error!("{}", msg);
+        DatanodeError::HTTP_SERVICE_ERROR(msg)
     })?;
     let profile = report.pprof()
         .map_err(|e| {
-            error!("could not get pprof profile: {:?}", e);
-            warp::reject::reject()
+            let msg = format!("could not get pprof profile: {:?}", e);
+            error!("{}", msg);
+            DatanodeError::HTTP_SERVICE_ERROR(msg)
         })?;
     profile.write_to_vec(&mut body).map_err(|e| {
-        error!("could not write pprof profile: {:?}", e);
-        warp::reject::reject()
+        let msg = format!("could not write pprof profile: {:?}", e);
+        error!("{}", msg);
+        DatanodeError::HTTP_SERVICE_ERROR(msg)
     })?;
     Ok(body)
+}
+
+pub struct PProfHandler {}
+impl Default for PProfHandler {
+    fn default() -> Self {
+        Self {}
+    }
+}
+impl Handler for PProfHandler {
+    fn get_route_method(&self) -> RouteMethod {
+        get(make(|_| pprof()))
+    }
+
+    fn get_route_path(&self) -> String {
+        "/debug/pprof/profile".to_string()
+    }
 }

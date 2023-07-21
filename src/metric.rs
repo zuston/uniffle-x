@@ -1,7 +1,6 @@
 use std::time::Duration;
 use lazy_static::lazy_static;
 use log::{error, info};
-
 use prometheus::{IntCounter, IntGauge, labels, Registry};
 use crate::config::MetricsConfig;
 
@@ -72,7 +71,6 @@ pub fn configure_metric_service(
     let job_name = "uniffle-datanode";
 
     let cfg = metric_config.clone().unwrap();
-
 
     let push_gateway_endpoint = cfg.push_gateway_endpoint;
 

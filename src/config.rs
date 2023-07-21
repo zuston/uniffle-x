@@ -96,12 +96,13 @@ pub struct Config {
 
     pub huge_partition_marked_threshold: Option<String>,
     pub huge_partition_memory_max_used_percent: Option<f64>,
+
+    pub http_monitor_service_port: Option<u16>,
 }
 
 // =========================================================
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct MetricsConfig {
-    pub http_port: Option<u32>,
     pub push_gateway_endpoint: Option<String>,
     pub push_interval_sec: Option<u32>
 }

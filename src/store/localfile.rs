@@ -23,7 +23,6 @@ use log::Level::Error;
 use tokio::sync::{RwLock, Semaphore};
 use tonic::codegen::ok;
 use tracing_subscriber::registry::Data;
-use warp::delete;
 use crate::app::ReadingOptions::FILE_OFFSET_AND_LEN;
 use crate::config::LocalfileStoreConfig;
 use crate::error::DatanodeError;

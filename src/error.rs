@@ -29,6 +29,9 @@ pub enum DatanodeError {
 
     #[error(transparent)]
     Other(#[from] anyhow::Error),
+
+    #[error("Http request failed. {0}")]
+    HTTP_SERVICE_ERROR(String),
 }
 
 impl From<AcquireError> for DatanodeError {
