@@ -8,7 +8,7 @@ pub mod metric;
 pub mod util;
 pub mod readable_size;
 pub mod await_tree;
-mod http;
+pub mod http;
 
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use anyhow::Result;
@@ -17,8 +17,7 @@ use tonic::transport::Server;
 use crate::app::AppManager;
 use crate::util::gen_datanode_uid;
 use crate::grpc::DefaultShuffleServer;
-use crate::http::http_service::HTTPServer;
-use crate::http::http_service::new_server;
+use crate::http::{HTTP_SERVICE, HTTPServer};
 use crate::metric::configure_metric_service;
 use crate::proto::uniffle::shuffle_server_server::ShuffleServerServer;
 
@@ -26,11 +25,10 @@ pub async fn start_datanode(config: config::Config) -> Result<()> {
     let rpc_port = config.grpc_port.unwrap_or(19999);
     let datanode_uid = gen_datanode_uid(rpc_port);
     let metric_config = config.metrics.clone();
-    let start_http_service = configure_metric_service(&metric_config, datanode_uid.clone());
-    if start_http_service {
-        let mut server = new_server(metric_config.unwrap().http_port.unwrap_or(19998) as u16);
-        server.start();
-    }
+    configure_metric_service(&metric_config, datanode_uid.clone());
+    // start the http monitor service
+    let http_port = config.http_monitor_service_port.unwrap_or(20010);
+    HTTP_SERVICE.start(http_port);
     // implement server startup
     tokio::spawn(async move {
         let app_manager_ref = AppManager::get_ref(config.clone());

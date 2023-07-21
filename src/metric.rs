@@ -1,7 +1,6 @@
 use std::time::Duration;
 use lazy_static::lazy_static;
 use log::{error, info};
-
 use prometheus::{IntCounter, IntGauge, labels, Registry};
 use crate::config::MetricsConfig;
 
@@ -37,7 +36,7 @@ lazy_static! {
     pub static ref TOTAL_HUGE_PARTITION_REQUIRE_BUFFER_FAILED: IntCounter = IntCounter::new("total_huge_partition_require_buffer_failed", "total_huge_partition_require_buffer_failed").expect("metrics should be created");
 }
 
-fn register_custom_metrics() {
+pub fn register_custom_metrics() {
     REGISTRY.register(Box::new(TOTAL_RECEIVED_DATA.clone())).expect("total_received_data must be registered");
     REGISTRY.register(Box::new(TOTAL_MEMORY_USED.clone())).expect("total_memory_used must be registered");
     REGISTRY.register(Box::new(TOTAL_LOCALFILE_USED.clone())).expect("total_localfile_used must be registered");
@@ -72,7 +71,6 @@ pub fn configure_metric_service(
     let job_name = "uniffle-datanode";
 
     let cfg = metric_config.clone().unwrap();
-
 
     let push_gateway_endpoint = cfg.push_gateway_endpoint;
 

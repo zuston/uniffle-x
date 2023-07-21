@@ -15,8 +15,8 @@ use tracing_subscriber::{EnvFilter, fmt, Registry};
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 use crate::config::{Config, LogConfig, RotationConfig};
+use crate::http::{HTTP_SERVICE, HTTPServer};
 use crate::metric::configure_metric_service;
-use crate::http::http_service::{HTTPServer,new_server};
 use crate::proto::uniffle::coordinator_server_client::CoordinatorServerClient;
 use crate::proto::uniffle::{ShuffleServerHeartBeatRequest, ShuffleServerId};
 use crate::util::{gen_datanode_uid,get_local_ip};
@@ -137,22 +137,21 @@ async fn main() -> Result<()> {
     let datanode_uid = gen_datanode_uid(rpc_port);
 
     let metric_config = config.metrics.clone();
-    // start metric service to expose http api
-    let start_http_service = configure_metric_service(&metric_config, datanode_uid.clone());
-    if start_http_service {
-        let mut server = new_server(metric_config.unwrap().http_port.unwrap_or(19998) as u16);
-        server.start();
-    }
+    configure_metric_service(&metric_config, datanode_uid.clone());
 
     let coordinator_quorum = config.coordinator_quorum.clone();
     let tags = config.tags.clone().unwrap_or(vec![]);
-    let app_manager_ref = AppManager::get_ref(config);
+    let app_manager_ref = AppManager::get_ref(config.clone());
     let _ = schedule_coordinator_report(
         app_manager_ref.clone(),
         coordinator_quorum,
         rpc_port,
         tags,
         datanode_uid).await;
+
+    let http_port = config.http_monitor_service_port.unwrap_or(20010);
+    info!("Starting http monitor service with port:[{}] ......", http_port);
+    HTTP_SERVICE.start(http_port);
 
     info!("Starting GRpc server with port:[{}] ......", rpc_port);
     let shuffle_server = DefaultShuffleServer::from(app_manager_ref);
