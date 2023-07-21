@@ -8,7 +8,6 @@ use poem::RouteMethod;
 use crate::http::http_service::PoemHTTPServer;
 use crate::http::metrics::MetricsHTTPHandler;
 use crate::http::pprof::PProfHandler;
-use crate::metric::register_custom_metrics;
 
 lazy_static! {
     pub static ref HTTP_SERVICE: Box<PoemHTTPServer> = new_server();
@@ -30,16 +29,4 @@ fn new_server() -> Box<PoemHTTPServer> {
     server.register_handler(PProfHandler::default());
     server.register_handler(MetricsHTTPHandler::default());
     Box::new(server)
-}
-
-#[cfg(test)]
-mod test {
-    use std::time::Duration;
-    use crate::http::{HTTP_SERVICE, HTTPServer};
-
-    #[tokio::test]
-    async fn http_service_test() {
-        HTTP_SERVICE.start(20019);
-        tokio::time::sleep(Duration::from_secs(1000)).await;
-    }
 }
