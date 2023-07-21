@@ -48,8 +48,19 @@ url = "2.4.0"
 await-tree = "0.1.1"
 hdrs = { version = "0.3.0", features = ["async_file"] }
 
+pprof = { version = "0.11.1", features = [
+    "flamegraph",
+    "protobuf-codec",
+    "protobuf",
+] }
+
 [build-dependencies]
 tonic-build = "0.9.1"
 
 [dev-dependencies]
 env_logger = "0.10.0"
+
+[profile.dev]
+# re-enable debug assertions when pprof-rs fixed the reports for misaligned pointer dereferences
+#   https://github.com/rust-lang/rust/pull/98112/
+debug-assertions = false

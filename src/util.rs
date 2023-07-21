@@ -20,6 +20,11 @@ pub fn get_local_ip() -> Result<IpAddr, std::io::Error> {
     }
 }
 
+pub fn gen_datanode_uid(grpc_port: i32) -> String {
+    let ip = get_local_ip().unwrap().to_string();
+    format!("{}-{}", ip.clone(), grpc_port)
+}
+
 const LENGTH_PER_CRC: usize = 4 * 1024;
 pub fn get_crc(bytes: &Bytes) -> i64 {
     let mut crc32 = Hasher::new();

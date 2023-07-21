@@ -1,12 +1,13 @@
 
 #[cfg(test)]
 mod tests {
+    use std::thread;
     use std::time::Duration;
     use datanode::proto::uniffle::shuffle_server_client::ShuffleServerClient;
     use anyhow::Result;
     use bytes::{Buf, Bytes, BytesMut};
     use tonic::transport::Channel;
-    use datanode::config::{Config, HybridStoreConfig, LocalfileStoreConfig, MemoryStoreConfig, StorageType};
+    use datanode::config::{Config, HybridStoreConfig, LocalfileStoreConfig, MemoryStoreConfig, MetricsConfig, StorageType};
     use datanode::proto::uniffle::{DataDistribution, GetLocalShuffleDataRequest, GetLocalShuffleIndexRequest, GetMemoryShuffleDataRequest, PartitionToBlockIds, ReportShuffleResultRequest, SendShuffleDataRequest, ShuffleBlock, ShuffleData, ShuffleRegisterRequest};
     use datanode::start_datanode;
     use datanode::util::get_crc;
@@ -26,7 +27,11 @@ mod tests {
             hybrid_store: Some(HybridStoreConfig::new(0.9, 0.5, None)),
             hdfs_store: None,
             store_type: Some(StorageType::MEMORY_LOCALFILE),
-            metrics: None,
+            metrics: Some(MetricsConfig {
+                http_port: Some(8080),
+                push_gateway_endpoint: None,
+                push_interval_sec: None,
+            }),
             grpc_port: Some(grpc_port),
             coordinator_quorum: vec![],
             tags: None,
@@ -41,7 +46,7 @@ mod tests {
 
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     async fn write_read_test() -> Result<()> {
         let temp_dir = tempdir::TempDir::new("test_write_read").unwrap();
         let temp_path = temp_dir.path().to_str().unwrap().to_string();
