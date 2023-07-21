@@ -1,10 +1,12 @@
 mod pprof;
 mod http_service;
 mod metrics;
+mod await_tree;
 
 use std::sync::{Arc, Mutex};
 use lazy_static::lazy_static;
 use poem::RouteMethod;
+use crate::http::await_tree::AwaitTreeHandler;
 use crate::http::http_service::PoemHTTPServer;
 use crate::http::metrics::MetricsHTTPHandler;
 use crate::http::pprof::PProfHandler;
@@ -28,5 +30,6 @@ fn new_server() -> Box<PoemHTTPServer> {
     let server = PoemHTTPServer::new();
     server.register_handler(PProfHandler::default());
     server.register_handler(MetricsHTTPHandler::default());
+    server.register_handler(AwaitTreeHandler::default());
     Box::new(server)
 }
