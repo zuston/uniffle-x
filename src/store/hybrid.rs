@@ -130,7 +130,7 @@ impl HybridStore {
         store.is::<HdfsStore>()
     }
 
-    async fn memory_spill_to_persistent_store(&self, ctx: WritingViewContext, in_flight_blocks_id: i64) -> Result<String, DatanodeError> {
+    async fn memory_spill_to_persistent_store(&self, mut ctx: WritingViewContext, in_flight_blocks_id: i64) -> Result<String, DatanodeError> {
         let uid = ctx.uid.clone();
         let blocks = &ctx.data_blocks;
         let mut spill_size = 0i64;
@@ -165,6 +165,10 @@ impl HybridStore {
         }
 
         let message = format!("partition uid: {:?}, memory spilled size: {}", &ctx.uid, spill_size);
+
+        // Resort the blocks by task_attempt_id to support LOCAL ORDER by default.
+        // This is for spark AQE.
+        ctx.data_blocks.sort_by_key(|block| block.task_attempt_id);
 
         // when throwing the data lost error, it should fast fail for this partition data.
         let inserted = candidate_store.insert(ctx).await;
@@ -263,7 +267,7 @@ impl Store for HybridStore {
                         Ok(msg) => debug!("{}", msg),
                         Err(error) => {
                             TOTAL_MEMORY_SPILL_OPERATION_FAILED.inc();
-                            error!("Errors on spilling memory data to localfile. error: {:#?}", error);
+                            error!("Errors on spill memory data to persistent storage. error: {:#?}", error);
                             // re-push to the queue to execute
                             let _ = store_cloned.memory_spill_send.send(message).await;
                         }
