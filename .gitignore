@@ -2,3 +2,4 @@
 .DS_Store
 .idea
 config.toml
+src/proto/uniffle.rs

@@ -24,7 +24,7 @@ tracing = "0.1"
 tracing-appender = "0.2"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tonic = "0.9.1"
-prost = "0.11.8"
+prost = "0.11.9"
 bytes = "1"
 tonic-build = "0.9.1"
 thiserror = "1"
@@ -55,6 +55,7 @@ pprof = { version = "0.11.1", features = [
 
 [build-dependencies]
 tonic-build = "0.9.1"
+prost-build = "0.11.9"
 
 [dev-dependencies]
 env_logger = "0.10.0"
