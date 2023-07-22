@@ -206,9 +206,6 @@ impl Store for LocalFileStore {
         let lock_cloned = self.partition_file_locks.entry(data_file_path.clone()).or_insert_with(|| Arc::new(RwLock::new(()))).clone();
         let lock_guard = lock_cloned.write().instrument_await(format!("localfile partition file lock. path: {}", data_file_path)).await;
 
-        // resort the blocks by task_attempt_id to support local order
-        ctx.data_blocks.sort_by_key(|block| block.task_attempt_id);
-
         // write index file and data file
         // todo: split multiple pieces
         let mut next_offset = local_disk.get_file_len(data_file_path.clone()).await?;
