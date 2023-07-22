@@ -1,8 +1,18 @@
-use std::env;
+use std::{env, fs};
 use std::path::Path;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // todo: use [protobuf-codegen](https://crates.io/crates/protobuf-codegen) to generate rust code
+    // generate the uniffle code for grpc server
+    let mut config = prost_build::Config::new();
+    config.bytes(&["."]);
+
+    tonic_build::configure()
+        .build_server(true)
+        .out_dir("src/proto")
+        .compile_with_config(config, &["src/proto/uniffle.proto"], &["."])?;
+
+    // rename the generated filename to uniffle.rs
+    rename_file("src/proto/rss.common.rs", "src/proto/uniffle.rs");
 
     // only setup ld library path in debug mode
     let profile = std::env::var("PROFILE").unwrap();
@@ -11,6 +21,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     Ok(())
 }
+
+fn rename_file(file_path: impl AsRef<Path>, renamed_path: impl AsRef<Path>) {
+    let f = file_path.as_ref();
+    if !f.exists() || !f.is_file() {
+        panic!("The file is missing or not a file.");
+    }
+    fs::rename(&f, renamed_path).expect("Errors on renaming file.");
+}
+
 
 fn setup_ld_library_path() {
     // java_home is required now to build and test
