@@ -1,15 +1,15 @@
-use log::error;
-use std::num::NonZeroI32;
-use std::time::Duration;
-use poem::{get, Request, RouteMethod, handler};
-use poem::endpoint::{make, make_sync};
-use serde::{Deserialize,Serialize};
-use tokio::time::sleep as delay_for;
-use pprof::ProfilerGuard;
-use pprof::protos::Message;
-use tracing_subscriber::fmt::format;
 use crate::error::DatanodeError;
 use crate::http::Handler;
+use log::error;
+use poem::endpoint::{make, make_sync};
+use poem::{get, handler, Request, RouteMethod};
+use pprof::protos::Message;
+use pprof::ProfilerGuard;
+use serde::{Deserialize, Serialize};
+use std::num::NonZeroI32;
+use std::time::Duration;
+use tokio::time::sleep as delay_for;
+use tracing_subscriber::fmt::format;
 
 #[derive(Deserialize, Serialize)]
 #[serde(default)]
@@ -43,12 +43,11 @@ async fn pprof_handler(req: &Request) -> poem::Result<Vec<u8>, DatanodeError> {
         error!("{}", msg);
         DatanodeError::HTTP_SERVICE_ERROR(msg)
     })?;
-    let profile = report.pprof()
-        .map_err(|e| {
-            let msg = format!("could not get pprof profile: {:?}", e);
-            error!("{}", msg);
-            DatanodeError::HTTP_SERVICE_ERROR(msg)
-        })?;
+    let profile = report.pprof().map_err(|e| {
+        let msg = format!("could not get pprof profile: {:?}", e);
+        error!("{}", msg);
+        DatanodeError::HTTP_SERVICE_ERROR(msg)
+    })?;
     profile.write_to_vec(&mut body).map_err(|e| {
         let msg = format!("could not write pprof profile: {:?}", e);
         error!("{}", msg);
@@ -77,20 +76,18 @@ impl Handler for PProfHandler {
 
 #[cfg(test)]
 mod tests {
-    use poem::Route;
-    use poem::test::TestClient;
-    use crate::http::Handler;
     use crate::http::pprof::PProfHandler;
+    use crate::http::Handler;
+    use poem::test::TestClient;
+    use poem::Route;
 
     #[tokio::test]
     async fn test_router() {
         let handler = PProfHandler::default();
-        let app = Route::new().at(
-            handler.get_route_path(),
-            handler.get_route_method()
-        );
+        let app = Route::new().at(handler.get_route_path(), handler.get_route_method());
         let cli = TestClient::new(app);
-        let resp = cli.get("/debug/pprof/profile")
+        let resp = cli
+            .get("/debug/pprof/profile")
             .query("seconds", &4)
             .query("frequency", &100)
             .send()

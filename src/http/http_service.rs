@@ -1,15 +1,15 @@
-use std::net::{IpAddr, Ipv4Addr, SocketAddr};
-use std::sync::Mutex;
-use log::info;
-use poem::{get, Route, RouteMethod, Server};
-use poem::endpoint::make_sync;
+use crate::error::DatanodeError;
 use anyhow::Result;
+use log::info;
+use poem::endpoint::make_sync;
 use poem::error::ResponseError;
 use poem::http::StatusCode;
 use poem::listener::TcpListener;
-use crate::error::DatanodeError;
+use poem::{get, Route, RouteMethod, Server};
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use std::sync::Mutex;
 
-use crate::http::{Handler, HTTPServer};
+use crate::http::{HTTPServer, Handler};
 
 impl ResponseError for DatanodeError {
     fn status(&self) -> StatusCode {
@@ -37,9 +37,7 @@ unsafe impl Sync for PoemHTTPServer {}
 
 impl PoemHTTPServer {
     pub fn new() -> Self {
-        let handlers: Vec<Box<dyn Handler>> = vec![
-            Box::new(IndexPageHandler {})
-        ];
+        let handlers: Vec<Box<dyn Handler>> = vec![Box::new(IndexPageHandler {})];
         Self {
             handlers: Mutex::new(handlers),
         }

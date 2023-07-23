@@ -1,35 +1,38 @@
-use std::{env, io};
-use std::collections::HashMap;
-use std::hash::Hash;
-use std::path::Path;
-use std::sync::Arc;
-use std::sync::atomic::AtomicI64;
-use crate::app::{PartitionedUId, ReadingIndexViewContext, ReadingViewContext, RequireBufferContext, WritingViewContext};
-use crate::store::{Persistent, RequireBufferResponse, ResponseData, ResponseDataIndex, Store};
-use async_trait::async_trait;
-use bytes::{BufMut, Bytes, BytesMut};
-use dashmap::DashMap;
-use futures::AsyncWriteExt;
-use hdrs::{Client, ClientBuilder};
-use log::{error, info};
-use tokio::sync::{AcquireError, Mutex, Semaphore};
-use tracing::debug;
+use crate::app::{
+    PartitionedUId, ReadingIndexViewContext, ReadingViewContext, RequireBufferContext,
+    WritingViewContext,
+};
 use crate::config::HdfsStoreConfig;
-use url::{Url, ParseError};
-use url::form_urlencoded::parse;
-use anyhow::{anyhow, Error, Result};
-use async_channel::Sender;
-use await_tree::InstrumentAwait;
-use futures::future::select;
-use toml::map::Entry;
-use tracing_subscriber::registry::Data;
 use crate::error::DatanodeError;
 use crate::error::DatanodeError::Other;
 use crate::metric::{TOTAL_HDFS_USED, TOTAL_MEMORY_SPILL_TO_HDFS};
+use crate::store::{Persistent, RequireBufferResponse, ResponseData, ResponseDataIndex, Store};
+use anyhow::{anyhow, Error, Result};
+use async_channel::Sender;
+use async_trait::async_trait;
+use await_tree::InstrumentAwait;
+use bytes::{BufMut, Bytes, BytesMut};
+use dashmap::DashMap;
+use futures::future::select;
+use futures::AsyncWriteExt;
+use hdrs::{Client, ClientBuilder};
+use log::{error, info};
+use std::collections::HashMap;
+use std::hash::Hash;
+use std::path::Path;
+use std::sync::atomic::AtomicI64;
+use std::sync::Arc;
+use std::{env, io};
+use tokio::sync::{AcquireError, Mutex, Semaphore};
+use toml::map::Entry;
+use tracing::debug;
+use tracing_subscriber::registry::Data;
+use url::form_urlencoded::parse;
+use url::{ParseError, Url};
 
 struct PartitionCachedMeta {
     is_file_created: bool,
-    data_len: i64
+    data_len: i64,
 }
 
 impl PartitionCachedMeta {
@@ -42,7 +45,7 @@ impl Default for PartitionCachedMeta {
     fn default() -> Self {
         Self {
             is_file_created: true,
-            data_len: 0
+            data_len: 0,
         }
     }
 }
@@ -53,7 +56,7 @@ pub struct HdfsStore {
     concurrency_access_limiter: Semaphore,
 
     partition_file_locks: DashMap<String, Arc<Mutex<()>>>,
-    partition_cached_meta: DashMap<String, PartitionCachedMeta>
+    partition_cached_meta: DashMap<String, PartitionCachedMeta>,
 }
 
 unsafe impl Send for HdfsStore {}
@@ -67,7 +70,7 @@ impl HdfsStore {
 
         let name_node = match data_url.host_str() {
             Some(host) => format!("{}://{}", data_url.scheme(), host),
-            _ => "default".to_string()
+            _ => "default".to_string(),
         };
         let krb5_cache = env::var("KRB5CACHE_PATH").map_or(None, |v| Some(v));
         let hdfs_user = env::var("HDFS_USER").map_or(None, |v| Some(v));
@@ -84,7 +87,7 @@ impl HdfsStore {
             filesystem: Box::new(filesystem),
             partition_file_locks: DashMap::new(),
             concurrency_access_limiter: Semaphore::new(conf.max_concurrency.unwrap_or(1) as usize),
-            partition_cached_meta: Default::default()
+            partition_cached_meta: Default::default(),
         }
     }
 
@@ -98,11 +101,16 @@ impl HdfsStore {
         let p_id = &uid.partition_id;
 
         (
-            format!("{}/{}/{}/{}-{}/partition-{}.data", &self.root, app_id, shuffle_id, p_id, p_id, p_id),
-            format!("{}/{}/{}/{}-{}/partition-{}.index", &self.root, app_id, shuffle_id, p_id, p_id, p_id)
+            format!(
+                "{}/{}/{}/{}-{}/partition-{}.data",
+                &self.root, app_id, shuffle_id, p_id, p_id, p_id
+            ),
+            format!(
+                "{}/{}/{}/{}-{}/partition-{}.index",
+                &self.root, app_id, shuffle_id, p_id, p_id, p_id
+            ),
         )
     }
-
 }
 
 #[async_trait]
@@ -112,20 +120,33 @@ impl Store for HdfsStore {
     }
 
     async fn insert(&self, ctx: WritingViewContext) -> Result<(), DatanodeError> {
-
         let uid = ctx.uid;
         let data_blocks = ctx.data_blocks;
 
         let (data_file_path, index_file_path) = self.get_file_path_by_uid(&uid);
 
-        let concurrency_guarder =
-            self.concurrency_access_limiter
-                .acquire()
-                .instrument_await(format!("hdfs concurrency limiter. path: {}", data_file_path))
-                .await.map_err(|e| DatanodeError::from(e))?;
+        let concurrency_guarder = self
+            .concurrency_access_limiter
+            .acquire()
+            .instrument_await(format!(
+                "hdfs concurrency limiter. path: {}",
+                data_file_path
+            ))
+            .await
+            .map_err(|e| DatanodeError::from(e))?;
 
-        let lock_cloned = self.partition_file_locks.entry(data_file_path.clone()).or_insert_with(|| Arc::new(Mutex::new(()))).clone();
-        let lock_guard = lock_cloned.lock().instrument_await(format!("hdfs partition file lock. path: {}", data_file_path)).await;
+        let lock_cloned = self
+            .partition_file_locks
+            .entry(data_file_path.clone())
+            .or_insert_with(|| Arc::new(Mutex::new(())))
+            .clone();
+        let lock_guard = lock_cloned
+            .lock()
+            .instrument_await(format!(
+                "hdfs partition file lock. path: {}",
+                data_file_path
+            ))
+            .await;
 
         let mut next_offset = match self.partition_cached_meta.get(&data_file_path) {
             None => {
@@ -139,12 +160,11 @@ impl Store for HdfsStore {
                 self.filesystem.touch(&data_file_path).await?;
                 self.filesystem.touch(&index_file_path).await?;
 
-                self.partition_cached_meta.insert(data_file_path.to_string(), Default::default());
+                self.partition_cached_meta
+                    .insert(data_file_path.to_string(), Default::default());
                 0
-            },
-            Some(meta) => {
-                meta.data_len
             }
+            Some(meta) => meta.data_len,
         };
 
         let mut index_bytes_holder = BytesMut::new();
@@ -173,12 +193,17 @@ impl Store for HdfsStore {
             total_flushed += length;
         }
 
-        self.filesystem.append(&data_file_path, data_bytes_holder.freeze())
-            .instrument_await(format!("hdfs writing data. path: {}", data_file_path)).await?;
-        self.filesystem.append(&index_file_path, index_bytes_holder.freeze())
-            .instrument_await(format!("hdfs writing index. path: {}", data_file_path)).await?;
+        self.filesystem
+            .append(&data_file_path, data_bytes_holder.freeze())
+            .instrument_await(format!("hdfs writing data. path: {}", data_file_path))
+            .await?;
+        self.filesystem
+            .append(&index_file_path, index_bytes_holder.freeze())
+            .instrument_await(format!("hdfs writing index. path: {}", data_file_path))
+            .await?;
 
-        let mut partition_cached_meta = self.partition_cached_meta.get_mut(&data_file_path).unwrap();
+        let mut partition_cached_meta =
+            self.partition_cached_meta.get_mut(&data_file_path).unwrap();
         partition_cached_meta.reset(next_offset);
 
         TOTAL_HDFS_USED.inc_by(total_flushed as u64);
@@ -192,18 +217,25 @@ impl Store for HdfsStore {
         todo!()
     }
 
-    async fn get_index(&self, ctx: ReadingIndexViewContext) -> Result<ResponseDataIndex, DatanodeError> {
+    async fn get_index(
+        &self,
+        ctx: ReadingIndexViewContext,
+    ) -> Result<ResponseDataIndex, DatanodeError> {
         todo!()
     }
 
-    async fn require_buffer(&self, ctx: RequireBufferContext) -> Result<RequireBufferResponse, DatanodeError> {
+    async fn require_buffer(
+        &self,
+        ctx: RequireBufferContext,
+    ) -> Result<RequireBufferResponse, DatanodeError> {
         todo!()
     }
 
     async fn purge(&self, app_id: String) -> Result<()> {
         let app_dir = self.get_app_dir(app_id.as_str());
 
-        let keys_to_delete: Vec<_> = self.partition_file_locks
+        let keys_to_delete: Vec<_> = self
+            .partition_file_locks
             .iter()
             .filter(|entry| entry.key().contains(app_dir.as_str()))
             .map(|entry| entry.key().to_string())
@@ -234,7 +266,7 @@ trait HdfsDelegator {
 }
 
 struct Hdrs {
-    client: Client
+    client: Client,
 }
 
 #[async_trait]
@@ -243,7 +275,13 @@ impl HdfsDelegator for Hdrs {
         let metadata = self.client.metadata(file_path);
         if metadata.is_err() && metadata.unwrap_err().kind() == io::ErrorKind::NotFound {
             debug!("Creating the file, path: {}", file_path);
-            let mut write = self.client.open_file().create(true).write(true).async_open(file_path).await?;
+            let mut write = self
+                .client
+                .open_file()
+                .create(true)
+                .write(true)
+                .async_open(file_path)
+                .await?;
             write.write("".as_bytes()).await?;
             write.flush().await?;
             write.close().await?;
@@ -253,7 +291,8 @@ impl HdfsDelegator for Hdrs {
     }
 
     async fn append(&self, file_path: &str, data: Bytes) -> Result<()> {
-        let mut data_writer = self.client
+        let mut data_writer = self
+            .client
             .open_file()
             .create(true)
             .append(true)
@@ -273,9 +312,7 @@ impl HdfsDelegator for Hdrs {
 
     async fn len(&self, file_path: &str) -> Result<u64> {
         let meta = self.client.metadata(file_path)?;
-        Ok(
-            meta.len()
-        )
+        Ok(meta.len())
     }
 
     async fn delete_dir(&self, dir: &str) -> Result<()> {
@@ -294,11 +331,7 @@ impl Hdrs {
             builder = builder.with_user(user.unwrap().as_str())
         }
         let client = builder.connect()?;
-        Ok(
-            Hdrs {
-                client
-            }
-        )
+        Ok(Hdrs { client })
     }
 }
 

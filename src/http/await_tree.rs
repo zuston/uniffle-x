@@ -1,8 +1,8 @@
-use poem::{get, RouteMethod};
-use poem::endpoint::make;
-use tokio::sync::Mutex;
 use crate::await_tree::AWAIT_TREE_REGISTRY;
 use crate::http::Handler;
+use poem::endpoint::make;
+use poem::{get, RouteMethod};
+use tokio::sync::Mutex;
 
 pub struct AwaitTreeHandler {}
 

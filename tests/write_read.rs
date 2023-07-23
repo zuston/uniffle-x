@@ -1,28 +1,32 @@
-
 #[cfg(test)]
 mod tests {
-    use std::thread;
-    use std::time::Duration;
-    use datanode::proto::uniffle::shuffle_server_client::ShuffleServerClient;
     use anyhow::Result;
     use bytes::{Buf, Bytes, BytesMut};
-    use tonic::transport::Channel;
-    use datanode::config::{Config, HybridStoreConfig, LocalfileStoreConfig, MemoryStoreConfig, MetricsConfig, StorageType};
-    use datanode::proto::uniffle::{DataDistribution, GetLocalShuffleDataRequest, GetLocalShuffleIndexRequest, GetMemoryShuffleDataRequest, PartitionToBlockIds, ReportShuffleResultRequest, SendShuffleDataRequest, ShuffleBlock, ShuffleData, ShuffleRegisterRequest};
+    use datanode::config::{
+        Config, HybridStoreConfig, LocalfileStoreConfig, MemoryStoreConfig, MetricsConfig,
+        StorageType,
+    };
+    use datanode::proto::uniffle::shuffle_server_client::ShuffleServerClient;
+    use datanode::proto::uniffle::{
+        DataDistribution, GetLocalShuffleDataRequest, GetLocalShuffleIndexRequest,
+        GetMemoryShuffleDataRequest, PartitionToBlockIds, ReportShuffleResultRequest,
+        SendShuffleDataRequest, ShuffleBlock, ShuffleData, ShuffleRegisterRequest,
+    };
     use datanode::start_datanode;
     use datanode::util::get_crc;
+    use std::thread;
+    use std::time::Duration;
+    use tonic::transport::Channel;
 
     fn create_mocked_config(grpc_port: i32, capacity: String, local_data_path: String) -> Config {
         Config {
-            memory_store: Some(MemoryStoreConfig {
-                capacity
-            }),
+            memory_store: Some(MemoryStoreConfig { capacity }),
             localfile_store: Some(LocalfileStoreConfig {
                 data_paths: vec![local_data_path],
                 healthy_check_min_disks: Some(0),
                 disk_high_watermark: None,
                 disk_low_watermark: None,
-                disk_max_concurrency: None
+                disk_max_concurrency: None,
             }),
             hybrid_store: Some(HybridStoreConfig::new(0.9, 0.5, None)),
             hdfs_store: None,
@@ -42,8 +46,12 @@ mod tests {
         }
     }
 
-    async fn get_data_from_remote(client: &ShuffleServerClient<Channel>, app_id: &str, shuffle_id: i32, partitions: Vec<i32>) {
-
+    async fn get_data_from_remote(
+        client: &ShuffleServerClient<Channel>,
+        app_id: &str,
+        shuffle_id: i32,
+        partitions: Vec<i32>,
+    ) {
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -58,19 +66,23 @@ mod tests {
         let _ = start_datanode(config).await;
 
         tokio::time::sleep(Duration::from_secs(1)).await;
-        let mut client = ShuffleServerClient::connect(format!("http://{}:{}", "0.0.0.0", port)).await?;
+        let mut client =
+            ShuffleServerClient::connect(format!("http://{}:{}", "0.0.0.0", port)).await?;
 
         let app_id = "write_read_test-app-id".to_string();
 
-        let register_response = client.register_shuffle(ShuffleRegisterRequest {
-            app_id: app_id.clone(),
-            shuffle_id: 0,
-            partition_ranges: vec![],
-            remote_storage: None,
-            user: "".to_string(),
-            shuffle_data_distribution: 1,
-            max_concurrency_per_partition_to_write: 10
-        }).await?.into_inner();
+        let register_response = client
+            .register_shuffle(ShuffleRegisterRequest {
+                app_id: app_id.clone(),
+                shuffle_id: 0,
+                partition_ranges: vec![],
+                remote_storage: None,
+                user: "".to_string(),
+                shuffle_data_distribution: 1,
+                max_concurrency_per_partition_to_write: 10,
+            })
+            .await?
+            .into_inner();
         assert_eq!(register_response.status, 0);
 
         let mut all_bytes_data = BytesMut::new();
@@ -86,27 +98,25 @@ mod tests {
 
             all_bytes_data.extend_from_slice(data);
 
-            let response = client.send_shuffle_data(SendShuffleDataRequest {
-                app_id: app_id.clone(),
-                shuffle_id: 0,
-                require_buffer_id: 0,
-                shuffle_data: vec![
-                    ShuffleData {
+            let response = client
+                .send_shuffle_data(SendShuffleDataRequest {
+                    app_id: app_id.clone(),
+                    shuffle_id: 0,
+                    require_buffer_id: 0,
+                    shuffle_data: vec![ShuffleData {
                         partition_id: idx,
-                        block: vec![
-                            ShuffleBlock {
-                                block_id: idx as i64,
-                                length: len as i32,
-                                uncompress_length: 0,
-                                crc: 0,
-                                data: Bytes::copy_from_slice(data),
-                                task_attempt_id: 0
-                            }
-                        ]
-                    }
-                ],
-                timestamp: 0
-            }).await?;
+                        block: vec![ShuffleBlock {
+                            block_id: idx as i64,
+                            length: len as i32,
+                            uncompress_length: 0,
+                            crc: 0,
+                            data: Bytes::copy_from_slice(data),
+                            task_attempt_id: 0,
+                        }],
+                    }],
+                    timestamp: 0,
+                })
+                .await?;
 
             let response = response.into_inner();
             assert_eq!(0, response.status);
@@ -119,36 +129,37 @@ mod tests {
         // firstly. read from the memory
 
         for idx in 0..batch_size {
-            let response_data = client.get_memory_shuffle_data(GetMemoryShuffleDataRequest {
-                app_id: app_id.clone(),
-                shuffle_id: 0,
-                partition_id: idx,
-                last_block_id: -1,
-                read_buffer_size: 10000000,
-                timestamp: 0,
-                serialized_expected_task_ids_bitmap: Default::default()
-            }).await?;
+            let response_data = client
+                .get_memory_shuffle_data(GetMemoryShuffleDataRequest {
+                    app_id: app_id.clone(),
+                    shuffle_id: 0,
+                    partition_id: idx,
+                    last_block_id: -1,
+                    read_buffer_size: 10000000,
+                    timestamp: 0,
+                    serialized_expected_task_ids_bitmap: Default::default(),
+                })
+                .await?;
             let response = response_data.into_inner();
             let segments = response.shuffle_data_block_segments;
             for segment in segments {
-                accepted_block_ids.push(
-                    segment.block_id
-                )
+                accepted_block_ids.push(segment.block_id)
             }
             let data = response.data;
             accepted_data_bytes.extend_from_slice(&data);
         }
 
-
         // secondly, read from the localfile
         for idx in 0..batch_size {
-            let local_index_data = client.get_local_shuffle_index(GetLocalShuffleIndexRequest {
-                app_id: app_id.clone(),
-                shuffle_id: 0,
-                partition_id: idx,
-                partition_num_per_range: 1,
-                partition_num: 0
-            }).await?;
+            let local_index_data = client
+                .get_local_shuffle_index(GetLocalShuffleIndexRequest {
+                    app_id: app_id.clone(),
+                    shuffle_id: 0,
+                    partition_id: idx,
+                    partition_num_per_range: 1,
+                    partition_num: 0,
+                })
+                .await?;
 
             let mut bytes = local_index_data.into_inner().index_data;
             if bytes.is_empty() {
@@ -167,16 +178,18 @@ mod tests {
             let id = bytes.get_i64();
             accepted_block_ids.push(id);
 
-            let partitioned_local_data = client.get_local_shuffle_data(GetLocalShuffleDataRequest {
-                app_id: app_id.clone(),
-                shuffle_id: 0,
-                partition_id: idx,
-                partition_num_per_range: 0,
-                partition_num: 0,
-                offset: 0,
-                length: len,
-                timestamp: 0
-            }).await?;
+            let partitioned_local_data = client
+                .get_local_shuffle_data(GetLocalShuffleDataRequest {
+                    app_id: app_id.clone(),
+                    shuffle_id: 0,
+                    partition_id: idx,
+                    partition_num_per_range: 0,
+                    partition_num: 0,
+                    offset: 0,
+                    length: len,
+                    timestamp: 0,
+                })
+                .await?;
             accepted_data_bytes.extend_from_slice(&partitioned_local_data.into_inner().data);
         }
 

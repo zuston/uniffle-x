@@ -1,11 +1,11 @@
+use crate::store::hybrid::HybridStore;
+use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::Path;
-use serde::{Deserialize, Serialize};
-use crate::store::hybrid::HybridStore;
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct MemoryStoreConfig {
-    pub capacity: String
+    pub capacity: String,
 }
 
 // =========================================================
@@ -13,7 +13,7 @@ pub struct MemoryStoreConfig {
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Default)]
 pub struct HdfsStoreConfig {
     pub data_path: String,
-    pub max_concurrency: Option<i32>
+    pub max_concurrency: Option<i32>,
 }
 
 // =========================================================
@@ -34,7 +34,7 @@ impl LocalfileStoreConfig {
             healthy_check_min_disks: None,
             disk_high_watermark: None,
             disk_low_watermark: None,
-            disk_max_concurrency: None
+            disk_max_concurrency: None,
         }
     }
 }
@@ -52,7 +52,11 @@ pub struct HybridStoreConfig {
 }
 
 impl HybridStoreConfig {
-    pub fn new(memory_spill_high_watermark: f32, memory_spill_low_watermark: f32, memory_single_buffer_max_spill_size: Option<String>) -> Self {
+    pub fn new(
+        memory_spill_high_watermark: f32,
+        memory_spill_low_watermark: f32,
+        memory_single_buffer_max_spill_size: Option<String>,
+    ) -> Self {
         HybridStoreConfig {
             memory_spill_high_watermark,
             memory_spill_low_watermark,
@@ -104,7 +108,7 @@ pub struct Config {
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct MetricsConfig {
     pub push_gateway_endpoint: Option<String>,
-    pub push_interval_sec: Option<u32>
+    pub push_interval_sec: Option<u32>,
 }
 
 // =========================================================
@@ -119,7 +123,7 @@ impl Default for LogConfig {
     fn default() -> Self {
         LogConfig {
             path: "/tmp/".to_string(),
-            rotation: RotationConfig::Hourly
+            rotation: RotationConfig::Hourly,
         }
     }
 }
@@ -140,7 +144,7 @@ pub enum StorageType {
     MEMORY_LOCALFILE = 3,
     HDFS = 4,
     MEMORY_HDFS = 5,
-    MEMORY_LOCALFILE_HDFS = 7
+    MEMORY_LOCALFILE_HDFS = 7,
 }
 
 impl StorageType {
@@ -166,7 +170,10 @@ impl Config {
     pub fn create_from_env() -> Config {
         let path = match std::env::var(CONFIG_FILE_PATH_KEY) {
             Ok(val) => val,
-            _ => panic!("config path must be set in env args. key: {}", CONFIG_FILE_PATH_KEY)
+            _ => panic!(
+                "config path must be set in env args. key: {}",
+                CONFIG_FILE_PATH_KEY
+            ),
         };
 
         let path = Path::new(&path);
@@ -180,9 +187,9 @@ impl Config {
 
 #[cfg(test)]
 mod test {
-    use std::str::FromStr;
     use crate::config::{Config, StorageType};
     use crate::readable_size::ReadableSize;
+    use std::str::FromStr;
 
     #[test]
     fn storage_type_test() {

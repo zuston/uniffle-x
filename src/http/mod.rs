@@ -1,15 +1,15 @@
-mod pprof;
+mod await_tree;
 mod http_service;
 mod metrics;
-mod await_tree;
+mod pprof;
 
-use std::sync::{Arc, Mutex};
-use lazy_static::lazy_static;
-use poem::RouteMethod;
 use crate::http::await_tree::AwaitTreeHandler;
 use crate::http::http_service::PoemHTTPServer;
 use crate::http::metrics::MetricsHTTPHandler;
 use crate::http::pprof::PProfHandler;
+use lazy_static::lazy_static;
+use poem::RouteMethod;
+use std::sync::{Arc, Mutex};
 
 lazy_static! {
     pub static ref HTTP_SERVICE: Box<PoemHTTPServer> = new_server();

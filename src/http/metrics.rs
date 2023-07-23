@@ -1,8 +1,8 @@
-use log::error;
-use poem::{get, RouteMethod};
-use poem::endpoint::make_sync;
 use crate::http::Handler;
 use crate::metric::REGISTRY;
+use log::error;
+use poem::endpoint::make_sync;
+use poem::{get, RouteMethod};
 
 pub struct MetricsHTTPHandler {}
 
