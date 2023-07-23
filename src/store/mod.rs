@@ -1,8 +1,25 @@
-pub mod memory;
-pub mod localfile;
-pub mod hybrid;
 pub mod hdfs;
+pub mod hybrid;
+pub mod localfile;
+pub mod memory;
 
+use crate::app::ReadingOptions::MEMORY_LAST_BLOCK_ID_AND_MAX_SIZE;
+use crate::app::{
+    PartitionedUId, ReadingIndexViewContext, ReadingViewContext, RequireBufferContext,
+    WritingViewContext,
+};
+use crate::config::Config;
+use crate::error::DatanodeError;
+use crate::proto::uniffle::{ShuffleBlock, ShuffleData, ShuffleDataBlockSegment};
+use crate::store::hybrid::HybridStore;
+use crate::store::memory::MemoryStore;
+use crate::store::ResponseDataIndex::local;
+use crate::util::current_timestamp_sec;
+use anyhow::{anyhow, Result};
+use async_trait::async_trait;
+use bytes::{BufMut, Bytes, BytesMut};
+use dashmap::mapref::multiple::RefMulti;
+use dashmap::DashMap;
 use std::borrow::BorrowMut;
 use std::cell::{Ref, RefCell, RefMut};
 use std::collections::HashMap;
@@ -10,33 +27,19 @@ use std::fmt::format;
 use std::hash::Hash;
 use std::io::SeekFrom;
 use std::path::Path;
-use std::sync::{Arc, Mutex, RwLock};
 use std::sync::atomic::{AtomicI64, Ordering};
+use std::sync::{Arc, Mutex, RwLock};
 use std::thread::park;
 use std::time::Duration;
-use anyhow::{Result, anyhow};
-use bytes::{BufMut, Bytes, BytesMut};
-use dashmap::DashMap;
-use dashmap::mapref::multiple::RefMulti;
-use tokio::{fs, select};
 use tokio::fs::{File, OpenOptions};
 use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt};
+use tokio::{fs, select};
 use tonic::codegen::ok;
-use crate::app::{PartitionedUId, ReadingIndexViewContext, ReadingViewContext, RequireBufferContext, WritingViewContext};
-use crate::app::ReadingOptions::{MEMORY_LAST_BLOCK_ID_AND_MAX_SIZE};
-use crate::proto::uniffle::{ShuffleBlock, ShuffleData, ShuffleDataBlockSegment};
-use crate::store::ResponseDataIndex::local;
-use async_trait::async_trait;
-use crate::config::Config;
-use crate::error::DatanodeError;
-use crate::store::hybrid::HybridStore;
-use crate::store::memory::MemoryStore;
-use crate::util::current_timestamp_sec;
 
 #[derive(Debug)]
 pub struct PartitionedData {
     pub partitionId: i32,
-    pub blocks: Vec<PartitionedDataBlock>
+    pub blocks: Vec<PartitionedDataBlock>,
 }
 
 #[derive(Debug, Clone)]
@@ -51,7 +54,6 @@ pub struct PartitionedDataBlock {
 
 impl From<ShuffleData> for PartitionedData {
     fn from(shuffleData: ShuffleData) -> PartitionedData {
-
         let mut blocks = vec![];
         for data in shuffleData.block {
             let block = PartitionedDataBlock {
@@ -60,19 +62,19 @@ impl From<ShuffleData> for PartitionedData {
                 uncompress_length: data.uncompress_length,
                 crc: data.crc,
                 data: data.data,
-                task_attempt_id: data.task_attempt_id
+                task_attempt_id: data.task_attempt_id,
             };
             blocks.push(block);
         }
         PartitionedData {
             partitionId: shuffleData.partition_id,
-            blocks
+            blocks,
         }
     }
 }
 
 pub enum ResponseDataIndex {
-    local(LocalDataIndex)
+    local(LocalDataIndex),
 }
 
 pub struct LocalDataIndex {
@@ -82,21 +84,21 @@ pub struct LocalDataIndex {
 
 pub enum ResponseData {
     local(PartitionedLocalData),
-    mem(PartitionedMemoryData)
+    mem(PartitionedMemoryData),
 }
 
 impl ResponseData {
     pub fn from_local(&self) -> Bytes {
         match self {
             ResponseData::local(data) => data.data.clone(),
-            _ => Default::default()
+            _ => Default::default(),
         }
     }
 
     pub fn from_memory(&self) -> PartitionedMemoryData {
         match self {
             ResponseData::mem(data) => data.clone(),
-            _ => Default::default()
+            _ => Default::default(),
         }
     }
 }
@@ -108,7 +110,7 @@ pub struct PartitionedLocalData {
 #[derive(Clone, Default)]
 pub struct PartitionedMemoryData {
     pub shuffle_data_block_segments: Vec<DataSegment>,
-    pub data: Bytes
+    pub data: Bytes,
 }
 
 #[derive(Clone)]
@@ -129,7 +131,7 @@ impl Into<ShuffleDataBlockSegment> for DataSegment {
             length: self.length,
             uncompress_length: self.uncompress_length,
             crc: self.crc,
-            task_attempt_id: self.task_attempt_id
+            task_attempt_id: self.task_attempt_id,
         }
     }
 }
@@ -139,7 +141,7 @@ impl Into<ShuffleDataBlockSegment> for DataSegment {
 #[derive(Clone, Debug)]
 pub struct RequireBufferResponse {
     pub ticket_id: i64,
-    pub allocated_timestamp: u64
+    pub allocated_timestamp: u64,
 }
 
 impl RequireBufferResponse {
@@ -158,8 +160,14 @@ pub trait Store {
     fn start(self: Arc<Self>);
     async fn insert(&self, ctx: WritingViewContext) -> Result<(), DatanodeError>;
     async fn get(&self, ctx: ReadingViewContext) -> Result<ResponseData, DatanodeError>;
-    async fn get_index(&self, ctx: ReadingIndexViewContext) -> Result<ResponseDataIndex, DatanodeError>;
-    async fn require_buffer(&self, ctx: RequireBufferContext) -> Result<RequireBufferResponse, DatanodeError>;
+    async fn get_index(
+        &self,
+        ctx: ReadingIndexViewContext,
+    ) -> Result<ResponseDataIndex, DatanodeError>;
+    async fn require_buffer(
+        &self,
+        ctx: RequireBufferContext,
+    ) -> Result<RequireBufferResponse, DatanodeError>;
     async fn purge(&self, app_id: String) -> Result<()>;
     async fn is_healthy(&self) -> Result<bool>;
 }

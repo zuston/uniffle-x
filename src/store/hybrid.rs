@@ -1,35 +1,44 @@
+use crate::app::{
+    PartitionedUId, ReadingIndexViewContext, ReadingOptions, ReadingViewContext,
+    RequireBufferContext, WritingViewContext,
+};
+use crate::await_tree::AWAIT_TREE_REGISTRY;
+use crate::config;
+use crate::config::{
+    Config, HdfsStoreConfig, HybridStoreConfig, LocalfileStoreConfig, StorageType,
+};
+use crate::error::DatanodeError;
+use crate::metric::{
+    GAUGE_MEMORY_SPILL_OPERATION, GAUGE_MEMORY_SPILL_TO_HDFS, GAUGE_MEMORY_SPILL_TO_LOCALFILE,
+    TOTAL_MEMORY_SPILL_OPERATION, TOTAL_MEMORY_SPILL_OPERATION_FAILED, TOTAL_MEMORY_SPILL_TO_HDFS,
+    TOTAL_MEMORY_SPILL_TO_LOCALFILE,
+};
+use crate::readable_size::ReadableSize;
+use crate::store::hdfs::HdfsStore;
+use crate::store::localfile::LocalFileStore;
+use crate::store::memory::{MemorySnapshot, MemoryStore, StagingBuffer};
+use crate::store::ResponseData::mem;
+use crate::store::{Persistent, RequireBufferResponse, ResponseData, ResponseDataIndex, Store};
+use anyhow::{anyhow, Error, Result};
+use async_channel::TryRecvError;
+use async_trait::async_trait;
+use await_tree::Registry;
+use log::{debug, error, info};
+use prometheus::core::{Atomic, AtomicU64};
 use std::any::Any;
 use std::borrow::BorrowMut;
 use std::cmp::max;
 use std::collections::{HashMap, VecDeque};
 use std::hash::Hash;
 use std::str::FromStr;
-use std::sync::{Arc};
+use std::sync::Arc;
 use std::time::Duration;
-use crate::app::{PartitionedUId, ReadingIndexViewContext, ReadingOptions, ReadingViewContext, RequireBufferContext, WritingViewContext};
-use crate::store::memory::{MemorySnapshot, MemoryStore, StagingBuffer};
-use crate::store::{Persistent, RequireBufferResponse, ResponseData, ResponseDataIndex, Store};
-use crate::store::localfile::LocalFileStore;
-use async_trait::async_trait;
-use anyhow::{Result, anyhow, Error};
-use async_channel::TryRecvError;
-use await_tree::Registry;
-use log::{debug, error, info};
-use prometheus::core::{Atomic, AtomicU64};
 use tokio::runtime::Runtime;
-use tokio::sync::{mpsc, Mutex, MutexGuard, oneshot, Semaphore};
 use tokio::sync::mpsc::Receiver;
+use tokio::sync::{mpsc, oneshot, Mutex, MutexGuard, Semaphore};
 use tokio::task::JoinHandle;
 use tracing::field::debug;
 use tracing_subscriber::registry::Data;
-use crate::await_tree::AWAIT_TREE_REGISTRY;
-use crate::config;
-use crate::config::{Config, HdfsStoreConfig, HybridStoreConfig, LocalfileStoreConfig, StorageType};
-use crate::error::DatanodeError;
-use crate::metric::{GAUGE_MEMORY_SPILL_OPERATION, GAUGE_MEMORY_SPILL_TO_HDFS, GAUGE_MEMORY_SPILL_TO_LOCALFILE, TOTAL_MEMORY_SPILL_OPERATION, TOTAL_MEMORY_SPILL_OPERATION_FAILED, TOTAL_MEMORY_SPILL_TO_HDFS, TOTAL_MEMORY_SPILL_TO_LOCALFILE};
-use crate::readable_size::ReadableSize;
-use crate::store::hdfs::HdfsStore;
-use crate::store::ResponseData::mem;
 
 trait PersistentStore: Store + Persistent + Send + Sync {}
 impl PersistentStore for LocalFileStore {}
@@ -57,12 +66,11 @@ pub struct HybridStore {
 
 struct SpillMessage {
     ctx: WritingViewContext,
-    id: i64
+    id: i64,
 }
 
 unsafe impl Send for HybridStore {}
 unsafe impl Sync for HybridStore {}
-
 
 impl HybridStore {
     pub fn from(config: Config) -> Self {
@@ -74,24 +82,23 @@ impl HybridStore {
         let mut persistent_stores: VecDeque<Box<dyn PersistentStore>> = VecDeque::with_capacity(2);
         if StorageType::contains_localfile(&store_type) {
             let localfile_store = LocalFileStore::from(config.localfile_store.unwrap());
-            persistent_stores.push_back(
-                Box::new(localfile_store)
-            );
+            persistent_stores.push_back(Box::new(localfile_store));
         }
         if StorageType::contains_hdfs(&store_type) {
             let hdfs_store = HdfsStore::from(config.hdfs_store.unwrap());
-            persistent_stores.push_back(
-                Box::new(hdfs_store)
-            );
+            persistent_stores.push_back(Box::new(hdfs_store));
         }
 
         let (send, recv) = async_channel::unbounded();
         let hybrid_conf = config.hybrid_store.unwrap();
-        let memory_spill_to_cold_threshold_size = match &hybrid_conf.memory_spill_to_cold_threshold_size {
-            Some(v) => Some(ReadableSize::from_str(&v.clone()).unwrap().as_bytes()),
-            _ => None
-        };
-        let memory_spill_max_concurrency = hybrid_conf.memory_spill_max_concurrency.unwrap_or(DEFAULT_MEMORY_SPILL_MAX_CONCURRENCY);
+        let memory_spill_to_cold_threshold_size =
+            match &hybrid_conf.memory_spill_to_cold_threshold_size {
+                Some(v) => Some(ReadableSize::from_str(&v.clone()).unwrap().as_bytes()),
+                _ => None,
+            };
+        let memory_spill_max_concurrency = hybrid_conf
+            .memory_spill_max_concurrency
+            .unwrap_or(DEFAULT_MEMORY_SPILL_MAX_CONCURRENCY);
 
         let mut store = HybridStore {
             hot_store: Box::new(MemoryStore::from(config.memory_store.unwrap())),
@@ -130,7 +137,11 @@ impl HybridStore {
         store.is::<HdfsStore>()
     }
 
-    async fn memory_spill_to_persistent_store(&self, mut ctx: WritingViewContext, in_flight_blocks_id: i64) -> Result<String, DatanodeError> {
+    async fn memory_spill_to_persistent_store(
+        &self,
+        mut ctx: WritingViewContext,
+        in_flight_blocks_id: i64,
+    ) -> Result<String, DatanodeError> {
         let uid = ctx.uid.clone();
         let blocks = &ctx.data_blocks;
         let mut spill_size = 0i64;
@@ -138,7 +149,10 @@ impl HybridStore {
             spill_size += block.length as i64;
         }
 
-        let warm = self.warm_store.as_ref().ok_or(anyhow!("empty warm store. It should not happen"))?;
+        let warm = self
+            .warm_store
+            .as_ref()
+            .ok_or(anyhow!("empty warm store. It should not happen"))?;
         let cold = self.cold_store.as_ref().unwrap_or(warm);
 
         let candidate_store = if warm.is_healthy().await? {
@@ -156,15 +170,18 @@ impl HybridStore {
             StorageType::LOCALFILE => {
                 TOTAL_MEMORY_SPILL_TO_LOCALFILE.inc();
                 GAUGE_MEMORY_SPILL_TO_LOCALFILE.inc();
-            },
+            }
             StorageType::HDFS => {
                 TOTAL_MEMORY_SPILL_TO_HDFS.inc();
                 GAUGE_MEMORY_SPILL_TO_HDFS.inc();
-            },
+            }
             _ => {}
         }
 
-        let message = format!("partition uid: {:?}, memory spilled size: {}", &ctx.uid, spill_size);
+        let message = format!(
+            "partition uid: {:?}, memory spilled size: {}",
+            &ctx.uid, spill_size
+        );
 
         // Resort the blocks by task_attempt_id to support LOCAL ORDER by default.
         // This is for spark AQE.
@@ -175,25 +192,28 @@ impl HybridStore {
         if let Err(err) = inserted {
             match err {
                 DatanodeError::PARTIAL_DATA_LOST(msg) => {
-                    let err_msg = format!("Partial data has been lost. Let's abort this partition data. error: {}", &msg);
+                    let err_msg = format!(
+                        "Partial data has been lost. Let's abort this partition data. error: {}",
+                        &msg
+                    );
                     error!("{}", err_msg)
-                },
-                others => {
-                    return Err(others)
                 }
+                others => return Err(others),
             }
         }
 
-        self.hot_store.release_in_flight_blocks_in_underlying_staging_buffer(uid, in_flight_blocks_id).await?;
+        self.hot_store
+            .release_in_flight_blocks_in_underlying_staging_buffer(uid, in_flight_blocks_id)
+            .await?;
         self.hot_store.free_memory(spill_size).await?;
 
         match self.get_store_type(candidate_store) {
             StorageType::LOCALFILE => {
                 GAUGE_MEMORY_SPILL_TO_LOCALFILE.dec();
-            },
+            }
             StorageType::HDFS => {
                 GAUGE_MEMORY_SPILL_TO_HDFS.dec();
-            },
+            }
             _ => {}
         }
 
@@ -204,28 +224,38 @@ impl HybridStore {
         self.hot_store.memory_snapshot().await
     }
 
-    pub async fn get_hot_store_memory_partitioned_buffer_size(&self, uid: &PartitionedUId) -> Result<u64> {
+    pub async fn get_hot_store_memory_partitioned_buffer_size(
+        &self,
+        uid: &PartitionedUId,
+    ) -> Result<u64> {
         self.hot_store.get_partitioned_buffer_size(uid).await
     }
 
     pub fn memory_spill_event_num(&self) -> Result<u64> {
-        Ok(
-            self.memory_spill_event_num.get()
-        )
+        Ok(self.memory_spill_event_num.get())
     }
 
-    async fn make_memory_buffer_flush(&self, buffer_inner: &mut MutexGuard<'_, StagingBuffer>, uid: PartitionedUId) -> Result<()> {
+    async fn make_memory_buffer_flush(
+        &self,
+        buffer_inner: &mut MutexGuard<'_, StagingBuffer>,
+        uid: PartitionedUId,
+    ) -> Result<()> {
         let (in_flight_uid, blocks) = buffer_inner.migrate_staging_to_in_flight()?;
 
         let writingCtx = WritingViewContext {
             uid,
-            data_blocks: blocks
+            data_blocks: blocks,
         };
 
-        if self.memory_spill_send.send(SpillMessage {
-            ctx: writingCtx,
-            id: in_flight_uid
-        }).await.is_err() {
+        if self
+            .memory_spill_send
+            .send(SpillMessage {
+                ctx: writingCtx,
+                id: in_flight_uid,
+            })
+            .await
+            .is_err()
+        {
             error!("Errors on sending spill message to queue. This should not happen.");
         } else {
             self.memory_spill_event_num.inc_by(1);
@@ -248,7 +278,8 @@ impl Store for HybridStore {
         let await_tree_registry: Arc<Mutex<Registry<u64>>> = AWAIT_TREE_REGISTRY.clone();
 
         let store = self.clone();
-        let concurrency_limiter = Arc::new(Semaphore::new(store.memory_spill_max_concurrency as usize));
+        let concurrency_limiter =
+            Arc::new(Semaphore::new(store.memory_spill_max_concurrency as usize));
         tokio::spawn(async move {
             let mut counter = 0u64;
             while let Ok(message) = store.memory_spill_recv.recv().await {
@@ -257,17 +288,24 @@ impl Store for HybridStore {
                 counter += 1;
 
                 // using acquire_owned(), refer to https://github.com/tokio-rs/tokio/issues/1998
-                let concurrency_guarder = concurrency_limiter.clone().acquire_owned().await.unwrap();
+                let concurrency_guarder =
+                    concurrency_limiter.clone().acquire_owned().await.unwrap();
 
                 TOTAL_MEMORY_SPILL_OPERATION.inc();
                 GAUGE_MEMORY_SPILL_OPERATION.inc();
                 let store_cloned = store.clone();
                 tokio::spawn(await_root.instrument(async move {
-                    match store_cloned.memory_spill_to_persistent_store(message.ctx.clone(), message.id).await {
+                    match store_cloned
+                        .memory_spill_to_persistent_store(message.ctx.clone(), message.id)
+                        .await
+                    {
                         Ok(msg) => debug!("{}", msg),
                         Err(error) => {
                             TOTAL_MEMORY_SPILL_OPERATION_FAILED.inc();
-                            error!("Errors on spill memory data to persistent storage. error: {:#?}", error);
+                            error!(
+                                "Errors on spill memory data to persistent storage. error: {:#?}",
+                                error
+                            );
                             // re-push to the queue to execute
                             let _ = store_cloned.memory_spill_send.send(message).await;
                         }
@@ -291,16 +329,19 @@ impl Store for HybridStore {
         let spill_lock = self.memory_spill_lock.lock().await;
 
         // single buffer flush
-        let buffer = self.hot_store.get_or_create_underlying_staging_buffer(uid.clone());
+        let buffer = self
+            .hot_store
+            .get_or_create_underlying_staging_buffer(uid.clone());
         let mut buffer_inner = buffer.lock().await;
         let max_spill_size = &self.config.memory_single_buffer_max_spill_size;
         if max_spill_size.is_some() {
             match ReadableSize::from_str(max_spill_size.clone().unwrap().as_str()) {
                 Ok(size) => {
                     if size.as_bytes() < buffer_inner.get_staging_size()? as u64 {
-                        self.make_memory_buffer_flush(&mut buffer_inner, uid.clone()).await?;
+                        self.make_memory_buffer_flush(&mut buffer_inner, uid.clone())
+                            .await?;
                     }
-                },
+                }
                 _ => {}
             }
         }
@@ -309,12 +350,14 @@ impl Store for HybridStore {
         // watermark flush
         let used_ratio = self.hot_store.memory_usage_ratio().await;
         if used_ratio > self.config.memory_spill_high_watermark {
-            let target_size = (self.hot_store.get_capacity()? as f32 * self.config.memory_spill_low_watermark) as i64;
+            let target_size = (self.hot_store.get_capacity()? as f32
+                * self.config.memory_spill_low_watermark) as i64;
             let buffers = self.hot_store.get_required_spill_buffer(target_size).await;
 
             for (partition_id, buffer) in buffers {
                 let mut buffer_inner = buffer.lock().await;
-                self.make_memory_buffer_flush(&mut buffer_inner, partition_id).await?;
+                self.make_memory_buffer_flush(&mut buffer_inner, partition_id)
+                    .await?;
             }
             debug!("Trigger spilling in background....");
         }
@@ -323,26 +366,42 @@ impl Store for HybridStore {
 
     async fn get(&self, ctx: ReadingViewContext) -> Result<ResponseData, DatanodeError> {
         match ctx.reading_options {
-            ReadingOptions::MEMORY_LAST_BLOCK_ID_AND_MAX_SIZE(_, _) => self.hot_store.get(ctx).await,
-            _ => self.warm_store.as_ref().unwrap().get(ctx).await
+            ReadingOptions::MEMORY_LAST_BLOCK_ID_AND_MAX_SIZE(_, _) => {
+                self.hot_store.get(ctx).await
+            }
+            _ => self.warm_store.as_ref().unwrap().get(ctx).await,
         }
     }
 
-    async fn get_index(&self, ctx: ReadingIndexViewContext) -> Result<ResponseDataIndex, DatanodeError> {
+    async fn get_index(
+        &self,
+        ctx: ReadingIndexViewContext,
+    ) -> Result<ResponseDataIndex, DatanodeError> {
         self.warm_store.as_ref().unwrap().get_index(ctx).await
     }
 
-    async fn require_buffer(&self, ctx: RequireBufferContext) -> Result<RequireBufferResponse, DatanodeError> {
+    async fn require_buffer(
+        &self,
+        ctx: RequireBufferContext,
+    ) -> Result<RequireBufferResponse, DatanodeError> {
         self.hot_store.require_buffer(ctx).await
     }
 
     async fn purge(&self, app_id: String) -> Result<()> {
         self.hot_store.purge(app_id.clone()).await?;
         if self.warm_store.is_some() {
-            self.warm_store.as_ref().unwrap().purge(app_id.clone()).await?;
+            self.warm_store
+                .as_ref()
+                .unwrap()
+                .purge(app_id.clone())
+                .await?;
         }
         if self.cold_store.is_some() {
-            self.cold_store.as_ref().unwrap().purge(app_id.clone()).await?;
+            self.cold_store
+                .as_ref()
+                .unwrap()
+                .purge(app_id.clone())
+                .await?;
         }
         Ok(())
     }
@@ -351,35 +410,43 @@ impl Store for HybridStore {
         async fn check_healthy(store: Option<&Box<dyn PersistentStore>>) -> Result<bool> {
             match store {
                 Some(store) => store.is_healthy().await,
-                _ => Ok(true)
+                _ => Ok(true),
             }
         }
-        let warm = check_healthy(self.warm_store.as_ref()).await.unwrap_or(false);
-        let cold = check_healthy(self.cold_store.as_ref()).await.unwrap_or(false);
-        Ok(
-            self.hot_store.is_healthy().await? && (warm || cold)
-        )
+        let warm = check_healthy(self.warm_store.as_ref())
+            .await
+            .unwrap_or(false);
+        let cold = check_healthy(self.cold_store.as_ref())
+            .await
+            .unwrap_or(false);
+        Ok(self.hot_store.is_healthy().await? && (warm || cold))
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use crate::app::ReadingOptions::{FILE_OFFSET_AND_LEN, MEMORY_LAST_BLOCK_ID_AND_MAX_SIZE};
+    use crate::app::{
+        App, PartitionedUId, ReadingIndexViewContext, ReadingOptions, ReadingViewContext,
+        RequireBufferContext, WritingViewContext,
+    };
+    use crate::config::{
+        Config, HdfsStoreConfig, HybridStoreConfig, LocalfileStoreConfig, MemoryStoreConfig,
+        StorageType,
+    };
+    use crate::store::hdfs::HdfsStore;
+    use crate::store::hybrid::{HybridStore, PersistentStore};
+    use crate::store::ResponseData::{local, mem};
+    use crate::store::{PartitionedDataBlock, ResponseData, ResponseDataIndex, Store};
+    use bytes::{Buf, Bytes, BytesMut};
+    use log::info;
+    use std::any::Any;
     use std::collections::VecDeque;
     use std::fs::read;
     use std::sync::Arc;
     use std::thread;
     use std::time::Duration;
-    use bytes::{Buf, Bytes, BytesMut};
-    use log::info;
     use tokio::time;
-    use std::any::Any;
-    use crate::app::{App, PartitionedUId, ReadingIndexViewContext, ReadingOptions, ReadingViewContext, RequireBufferContext, WritingViewContext};
-    use crate::app::ReadingOptions::{FILE_OFFSET_AND_LEN, MEMORY_LAST_BLOCK_ID_AND_MAX_SIZE};
-    use crate::config::{Config, HdfsStoreConfig, HybridStoreConfig, LocalfileStoreConfig, MemoryStoreConfig, StorageType};
-    use crate::store::hybrid::{HybridStore, PersistentStore};
-    use crate::store::{PartitionedDataBlock, ResponseData, ResponseDataIndex, Store};
-    use crate::store::hdfs::HdfsStore;
-    use crate::store::ResponseData::{local, mem};
 
     #[test]
     fn type_downcast_check() {
@@ -402,14 +469,10 @@ mod tests {
     #[tokio::test]
     async fn test_only_memory() {
         let mut config = Config::default();
-        config.memory_store=Some(MemoryStoreConfig {
-            capacity: "20M".to_string()
+        config.memory_store = Some(MemoryStoreConfig {
+            capacity: "20M".to_string(),
         });
-        config.hybrid_store = Some(HybridStoreConfig::new(
-            0.8,
-            0.2,
-            None
-        ));
+        config.hybrid_store = Some(HybridStoreConfig::new(0.8, 0.2, None));
         config.store_type = Some(StorageType::MEMORY);
         let mut store = HybridStore::from(config);
         assert_eq!(true, store.is_healthy().await.unwrap());
@@ -425,7 +488,10 @@ mod tests {
         assert_eq!(None, stores.pop_front());
     }
 
-    fn start_store(memory_single_buffer_max_spill_size: Option<String>, memory_capacity: String) -> Arc<HybridStore> {
+    fn start_store(
+        memory_single_buffer_max_spill_size: Option<String>,
+        memory_capacity: String,
+    ) -> Arc<HybridStore> {
         let data = b"hello world!";
         let data_len = data.len();
 
@@ -434,42 +500,43 @@ mod tests {
         println!("init local file path: {}", temp_path);
 
         let mut config = Config::default();
-        config.memory_store=Some(MemoryStoreConfig {
-            capacity: memory_capacity
+        config.memory_store = Some(MemoryStoreConfig {
+            capacity: memory_capacity,
         });
-        config.localfile_store = Some(LocalfileStoreConfig::new(
-            vec![temp_path]
-        ));
+        config.localfile_store = Some(LocalfileStoreConfig::new(vec![temp_path]));
         config.hybrid_store = Some(HybridStoreConfig::new(
             0.8,
             0.2,
-            memory_single_buffer_max_spill_size
+            memory_single_buffer_max_spill_size,
         ));
         config.store_type = Some(StorageType::MEMORY_LOCALFILE);
 
         /// The hybrid store will flush the memory data to file when
         /// the data reaches the number of 4
-
         let mut store = Arc::new(HybridStore::from(config));
         store
     }
 
-    async fn write_some_data(store: Arc<HybridStore>, uid: PartitionedUId, data_len: i32, data: &[u8; 12], batch_size: i64) -> Vec<i64> {
+    async fn write_some_data(
+        store: Arc<HybridStore>,
+        uid: PartitionedUId,
+        data_len: i32,
+        data: &[u8; 12],
+        batch_size: i64,
+    ) -> Vec<i64> {
         let mut block_ids = vec![];
         for i in 0..batch_size {
             block_ids.push(i);
             let writingCtx = WritingViewContext {
                 uid: uid.clone(),
-                data_blocks: vec![
-                    PartitionedDataBlock {
-                        block_id: i,
-                        length: data_len as i32,
-                        uncompress_length: 100,
-                        crc: 0,
-                        data: Bytes::copy_from_slice(data),
-                        task_attempt_id: 0
-                    }
-                ]
+                data_blocks: vec![PartitionedDataBlock {
+                    block_id: i,
+                    length: data_len as i32,
+                    uncompress_length: 100,
+                    crc: 0,
+                    data: Bytes::copy_from_slice(data),
+                    task_attempt_id: 0,
+                }],
             };
             let _ = store.insert(writingCtx).await;
         }
@@ -482,31 +549,39 @@ mod tests {
         let data = b"hello world!";
         let data_len = data.len();
 
-        let mut store = start_store(Some("1".to_string()), ((data_len * 10000) as i64).to_string());
+        let mut store = start_store(
+            Some("1".to_string()),
+            ((data_len * 10000) as i64).to_string(),
+        );
         store.clone().start();
 
         let uid = PartitionedUId {
             app_id: "1000".to_string(),
             shuffle_id: 0,
-            partition_id: 0
+            partition_id: 0,
         };
-        let expected_block_ids = write_some_data(store.clone(), uid.clone(), data_len as i32, data, 100).await;
+        let expected_block_ids =
+            write_some_data(store.clone(), uid.clone(), data_len as i32, data, 100).await;
         tokio::time::sleep(Duration::from_secs(1)).await;
 
         // read from memory and then from localfile
-        let response_data = store.get(ReadingViewContext {
-            uid: uid.clone(),
-            reading_options: MEMORY_LAST_BLOCK_ID_AND_MAX_SIZE(-1, 1024 * 1024 * 1024)
-        }).await?;
+        let response_data = store
+            .get(ReadingViewContext {
+                uid: uid.clone(),
+                reading_options: MEMORY_LAST_BLOCK_ID_AND_MAX_SIZE(-1, 1024 * 1024 * 1024),
+            })
+            .await?;
 
         let mut accepted_block_ids = vec![];
         for segment in response_data.from_memory().shuffle_data_block_segments {
             accepted_block_ids.push(segment.block_id);
         }
-        
-        let local_index_data = store.get_index(ReadingIndexViewContext {
-            partition_id: uid.clone()
-        }).await?;
+
+        let local_index_data = store
+            .get_index(ReadingIndexViewContext {
+                partition_id: uid.clone(),
+            })
+            .await?;
 
         match local_index_data {
             ResponseDataIndex::local(index) => {
@@ -527,8 +602,8 @@ mod tests {
 
                     accepted_block_ids.push(id);
                 }
-            },
-            _ => panic!("")
+            }
+            _ => panic!(""),
         }
 
         assert_eq!(accepted_block_ids, expected_block_ids);
@@ -547,7 +622,7 @@ mod tests {
         let uid = PartitionedUId {
             app_id: "1000".to_string(),
             shuffle_id: 0,
-            partition_id: 0
+            partition_id: 0,
         };
         write_some_data(store.clone(), uid.clone(), data_len as i32, data, 4).await;
         tokio::time::sleep(Duration::from_secs(1)).await;
@@ -556,7 +631,10 @@ mod tests {
         let mut last_block_id = -1;
         let readingViewCtx = ReadingViewContext {
             uid: uid.clone(),
-            reading_options: ReadingOptions::MEMORY_LAST_BLOCK_ID_AND_MAX_SIZE(last_block_id, data_len as i64)
+            reading_options: ReadingOptions::MEMORY_LAST_BLOCK_ID_AND_MAX_SIZE(
+                last_block_id,
+                data_len as i64,
+            ),
         };
 
         let read_data = store.get(readingViewCtx).await;
@@ -568,14 +646,14 @@ mod tests {
             mem(mem_data) => {
                 assert_eq!(0, mem_data.shuffle_data_block_segments.len());
             }
-            _ => panic!()
+            _ => panic!(),
         }
 
         // case2: read data from localfile
         // 1. read index file
         // 2. read data
         let indexViewCtx = ReadingIndexViewContext {
-            partition_id: uid.clone()
+            partition_id: uid.clone(),
         };
         match store.get_index(indexViewCtx).await.unwrap() {
             ResponseDataIndex::local(index) => {
@@ -590,18 +668,18 @@ mod tests {
 
                     let readingViewCtx = ReadingViewContext {
                         uid: uid.clone(),
-                        reading_options: ReadingOptions::FILE_OFFSET_AND_LEN(offset, length as i64)
+                        reading_options: ReadingOptions::FILE_OFFSET_AND_LEN(offset, length as i64),
                     };
                     let read_data = store.get(readingViewCtx).await.unwrap();
                     match read_data {
                         ResponseData::local(local_data) => {
                             assert_eq!(Bytes::copy_from_slice(data), local_data.data);
-                        },
-                        _ => panic!()
+                        }
+                        _ => panic!(),
                     }
                 }
-            },
-            _ => panic!()
+            }
+            _ => panic!(),
         }
     }
 
@@ -629,7 +707,7 @@ mod tests {
         let uid = PartitionedUId {
             app_id: "1000".to_string(),
             shuffle_id: 0,
-            partition_id: 0
+            partition_id: 0,
         };
         write_some_data(store.clone(), uid.clone(), data_len as i32, data, 4).await;
         let mut last_block_id = -1;
@@ -637,7 +715,10 @@ mod tests {
         for idx in 0..=10 {
             let readingViewCtx = ReadingViewContext {
                 uid: uid.clone(),
-                reading_options: ReadingOptions::MEMORY_LAST_BLOCK_ID_AND_MAX_SIZE(last_block_id, data_len as i64)
+                reading_options: ReadingOptions::MEMORY_LAST_BLOCK_ID_AND_MAX_SIZE(
+                    last_block_id,
+                    data_len as i64,
+                ),
             };
 
             let read_data = store.get(readingViewCtx).await;
@@ -648,15 +729,19 @@ mod tests {
             match read_data.unwrap() {
                 mem(mem_data) => {
                     if idx >= 4 {
-                        println!("idx: {}, len: {}", idx, mem_data.shuffle_data_block_segments.len());
+                        println!(
+                            "idx: {}, len: {}",
+                            idx,
+                            mem_data.shuffle_data_block_segments.len()
+                        );
                         continue;
                     }
                     assert_eq!(Bytes::copy_from_slice(data), mem_data.data);
                     let segments = mem_data.shuffle_data_block_segments;
                     assert_eq!(1, segments.len());
                     last_block_id = segments.get(0).unwrap().block_id;
-                },
-                _ => panic!()
+                }
+                _ => panic!(),
             }
         }
     }

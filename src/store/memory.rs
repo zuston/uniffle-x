@@ -1,22 +1,30 @@
+use crate::app::ReadingOptions::MEMORY_LAST_BLOCK_ID_AND_MAX_SIZE;
+use crate::app::{
+    PartitionedUId, ReadingIndexViewContext, ReadingViewContext, RequireBufferContext,
+    WritingViewContext,
+};
+use crate::config::MemoryStoreConfig;
+use crate::error::DatanodeError;
+use crate::metric::{
+    GAUGE_MEMORY_ALLOCATED, GAUGE_MEMORY_CAPACITY, GAUGE_MEMORY_USED, TOTAL_MEMORY_USED,
+};
+use crate::readable_size::ReadableSize;
+use crate::store::{
+    DataSegment, PartitionedDataBlock, PartitionedMemoryData, RequireBufferResponse, ResponseData,
+    ResponseDataIndex, Store,
+};
+use crate::*;
+use async_trait::async_trait;
+use bytes::{BufMut, BytesMut};
+use dashmap::DashMap;
 use std::cell::Ref;
 use std::collections::{BTreeMap, HashMap};
 use std::hash::Hash;
 use std::slice::Iter;
 use std::str::FromStr;
-use std::sync::{Arc};
 use std::sync::atomic::{AtomicI64, Ordering};
-use bytes::{BufMut, BytesMut};
-use dashmap::DashMap;
-use crate::*;
-use crate::app::{PartitionedUId, ReadingIndexViewContext, ReadingViewContext, RequireBufferContext, WritingViewContext};
-use crate::app::ReadingOptions::MEMORY_LAST_BLOCK_ID_AND_MAX_SIZE;
-use crate::store::{DataSegment, PartitionedDataBlock, PartitionedMemoryData, RequireBufferResponse, ResponseData, ResponseDataIndex, Store};
-use async_trait::async_trait;
+use std::sync::Arc;
 use tokio::sync::Mutex;
-use crate::config::MemoryStoreConfig;
-use crate::error::DatanodeError;
-use crate::metric::{GAUGE_MEMORY_ALLOCATED, GAUGE_MEMORY_CAPACITY, GAUGE_MEMORY_USED, TOTAL_MEMORY_USED};
-use crate::readable_size::ReadableSize;
 
 pub struct MemoryStore {
     // todo: change to RW lock
@@ -36,7 +44,7 @@ impl MemoryStore {
             state: DashMap::new(),
             budget: MemoryBudget::new(max_memory_size),
             memory_allocated_of_app: DashMap::new(),
-            memory_capacity: max_memory_size
+            memory_capacity: max_memory_size,
         }
     }
 
@@ -46,7 +54,7 @@ impl MemoryStore {
             state: DashMap::new(),
             budget: MemoryBudget::new(capacity.as_bytes() as i64),
             memory_allocated_of_app: DashMap::new(),
-            memory_capacity: capacity.as_bytes() as i64
+            memory_capacity: capacity.as_bytes() as i64,
         }
     }
 
@@ -61,16 +69,17 @@ impl MemoryStore {
     }
 
     pub fn get_capacity(&self) -> Result<i64> {
-        Ok(
-            self.memory_capacity
-        )
+        Ok(self.memory_capacity)
     }
 
     pub async fn free_memory(&self, size: i64) -> Result<bool> {
         self.budget.free_used(size).await
     }
 
-    pub async fn get_required_spill_buffer(&self, target_len: i64) -> HashMap<PartitionedUId, Arc<Mutex<StagingBuffer>>> {
+    pub async fn get_required_spill_buffer(
+        &self,
+        target_len: i64,
+    ) -> HashMap<PartitionedUId, Arc<Mutex<StagingBuffer>>> {
         // sort
         // get the spill buffers
 
@@ -84,8 +93,14 @@ impl MemoryStore {
                         staging_size += block.length;
                     }
 
-                    let valset = sorted_tree_map.entry(staging_size).or_insert_with(||vec![]);
-                    valset.push((app_entry.key().clone(), shuffle_entry.key().clone(), partition_entry.key().clone()));
+                    let valset = sorted_tree_map
+                        .entry(staging_size)
+                        .or_insert_with(|| vec![]);
+                    valset.push((
+                        app_entry.key().clone(),
+                        shuffle_entry.key().clone(),
+                        partition_entry.key().clone(),
+                    ));
                 }
             }
         }
@@ -103,8 +118,12 @@ impl MemoryStore {
                 }
                 current_removed += size.to_be() as i64;
                 required_spill_buffers.insert(
-                    PartitionedUId::from(app_id.to_string(), shuffle_id.clone(), partition_id.clone()),
-                    self.get_underlying_partition_buffer(app_id, shuffle_id, partition_id)
+                    PartitionedUId::from(
+                        app_id.to_string(),
+                        shuffle_id.clone(),
+                        partition_id.clone(),
+                    ),
+                    self.get_underlying_partition_buffer(app_id, shuffle_id, partition_id),
                 );
             }
         }
@@ -113,14 +132,18 @@ impl MemoryStore {
     }
 
     pub async fn get_partitioned_buffer_size(&self, uid: &PartitionedUId) -> Result<u64> {
-        let buffer = self.get_underlying_partition_buffer(&uid.app_id, &uid.shuffle_id, &uid.shuffle_id);
+        let buffer =
+            self.get_underlying_partition_buffer(&uid.app_id, &uid.shuffle_id, &uid.shuffle_id);
         let buffer = buffer.lock().await;
-        Ok(
-            buffer.total_size as u64
-        )
+        Ok(buffer.total_size as u64)
     }
 
-    fn get_underlying_partition_buffer(&self, app_id: &String, shuffle_id: &i32, partition_id: &i32) -> Arc<Mutex<StagingBuffer>> {
+    fn get_underlying_partition_buffer(
+        &self,
+        app_id: &String,
+        shuffle_id: &i32,
+        partition_id: &i32,
+    ) -> Arc<Mutex<StagingBuffer>> {
         let app_entry = self.state.get(app_id).unwrap();
         let shuffle_entry = app_entry.get(shuffle_id).unwrap();
         let partition_entry = shuffle_entry.get(partition_id).unwrap();
@@ -129,24 +152,39 @@ impl MemoryStore {
         buffer_cloned
     }
 
-    pub async fn release_in_flight_blocks_in_underlying_staging_buffer(&self, uid: PartitionedUId, in_flight_blocks_id: i64) -> Result<()> {
+    pub async fn release_in_flight_blocks_in_underlying_staging_buffer(
+        &self,
+        uid: PartitionedUId,
+        in_flight_blocks_id: i64,
+    ) -> Result<()> {
         let buffer = self.get_or_create_underlying_staging_buffer(uid);
         let mut buffer_ref = buffer.lock().await;
         buffer_ref.flight_finished(&in_flight_blocks_id)?;
         Ok(())
     }
 
-    pub fn get_or_create_underlying_staging_buffer(&self, uid: PartitionedUId) -> Arc<Mutex<StagingBuffer>> {
+    pub fn get_or_create_underlying_staging_buffer(
+        &self,
+        uid: PartitionedUId,
+    ) -> Arc<Mutex<StagingBuffer>> {
         let app_id = uid.app_id;
         let shuffle_id = uid.shuffle_id;
         let partition_id = uid.partition_id;
         let app_level_entry = self.state.entry(app_id).or_insert_with(|| DashMap::new());
-        let shuffle_level_entry = app_level_entry.entry(shuffle_id).or_insert_with(|| DashMap::new());
-        let buffer = shuffle_level_entry.entry(partition_id).or_insert_with(|| Arc::new(Mutex::new(StagingBuffer::new())));
+        let shuffle_level_entry = app_level_entry
+            .entry(shuffle_id)
+            .or_insert_with(|| DashMap::new());
+        let buffer = shuffle_level_entry
+            .entry(partition_id)
+            .or_insert_with(|| Arc::new(Mutex::new(StagingBuffer::new())));
         buffer.clone()
     }
 
-    pub(crate) fn read_partial_data_with_max_size_limit<'a>(&'a self, blocks: Vec<&'a PartitionedDataBlock>, fetched_size_limit: i64) -> (Vec<&PartitionedDataBlock>, i64) {
+    pub(crate) fn read_partial_data_with_max_size_limit<'a>(
+        &'a self,
+        blocks: Vec<&'a PartitionedDataBlock>,
+        fetched_size_limit: i64,
+    ) -> (Vec<&PartitionedDataBlock>, i64) {
         let mut fetched = vec![];
         let mut fetched_size = 0;
 
@@ -262,7 +300,7 @@ impl Store for MemoryStore {
 
                 self.read_partial_data_with_max_size_limit(candidate_blocks, max_size)
             }
-            _ => (vec![], 0)
+            _ => (vec![], 0),
         };
 
         let mut bytes_holder = BytesMut::with_capacity(length as usize);
@@ -277,34 +315,39 @@ impl Store for MemoryStore {
                 length: block.length,
                 uncompress_length: block.uncompress_length,
                 crc: block.crc,
-                task_attempt_id: block.task_attempt_id
+                task_attempt_id: block.task_attempt_id,
             });
             offset += block.length as i64;
         }
 
-        Ok(ResponseData::mem(
-            PartitionedMemoryData {
-                shuffle_data_block_segments: segments,
-                data: bytes_holder.freeze()
-            }
-        ))
+        Ok(ResponseData::mem(PartitionedMemoryData {
+            shuffle_data_block_segments: segments,
+            data: bytes_holder.freeze(),
+        }))
     }
 
-    async fn get_index(&self, ctx: ReadingIndexViewContext) -> Result<ResponseDataIndex, DatanodeError> {
+    async fn get_index(
+        &self,
+        ctx: ReadingIndexViewContext,
+    ) -> Result<ResponseDataIndex, DatanodeError> {
         panic!("It should not be invoked.")
     }
 
-    async fn require_buffer(&self, ctx: RequireBufferContext) -> Result<RequireBufferResponse, DatanodeError> {
+    async fn require_buffer(
+        &self,
+        ctx: RequireBufferContext,
+    ) -> Result<RequireBufferResponse, DatanodeError> {
         let (succeed, ticket_id) = self.budget.pre_allocate(ctx.size).await?;
         match succeed {
             true => {
-                let mut val = self.memory_allocated_of_app.entry(ctx.uid.app_id).or_insert_with(||0);
+                let mut val = self
+                    .memory_allocated_of_app
+                    .entry(ctx.uid.app_id)
+                    .or_insert_with(|| 0);
                 *val += ctx.size;
                 Ok(RequireBufferResponse::new(ticket_id))
-            },
-            _ => {
-                Err(DatanodeError::NO_ENOUGH_MEMORY_TO_BE_ALLOCATED)
             }
+            _ => Err(DatanodeError::NO_ENOUGH_MEMORY_TO_BE_ALLOCATED),
         }
     }
 
@@ -313,7 +356,7 @@ impl Store for MemoryStore {
             Some(val) => {
                 self.budget.free_allocated(*val).await.unwrap();
             }
-            _ => todo!()
+            _ => todo!(),
         }
 
         self.state.remove(&app_id);
@@ -325,7 +368,6 @@ impl Store for MemoryStore {
     }
 }
 
-
 /// thread safe, this will be guarded by the lock
 #[derive(Debug, Clone)]
 pub struct StagingBuffer {
@@ -335,7 +377,7 @@ pub struct StagingBuffer {
     in_flight_size: i64,
     staging: Vec<PartitionedDataBlock>,
     in_flight: BTreeMap<i64, Vec<PartitionedDataBlock>>,
-    id_generator: i64
+    id_generator: i64,
 }
 
 impl StagingBuffer {
@@ -346,7 +388,7 @@ impl StagingBuffer {
             in_flight_size: 0,
             staging: vec![],
             in_flight: BTreeMap::new(),
-            id_generator: 0
+            id_generator: 0,
         }
     }
 
@@ -374,9 +416,7 @@ impl StagingBuffer {
         self.id_generator += 1;
         self.in_flight.insert(id.clone(), blocks.clone());
 
-        Ok(
-            (id, blocks)
-        )
+        Ok((id, blocks))
     }
 
     /// clear the blocks which are flushed to persistent storage
@@ -412,7 +452,7 @@ impl StagingBuffer {
 pub struct MemorySnapshot {
     capacity: i64,
     allocated: i64,
-    used: i64
+    used: i64,
 }
 
 impl From<(i64, i64, i64)> for MemorySnapshot {
@@ -420,7 +460,7 @@ impl From<(i64, i64, i64)> for MemorySnapshot {
         MemorySnapshot {
             capacity: value.0,
             allocated: value.1,
-            used: value.2
+            used: value.2,
         }
     }
 }
@@ -442,42 +482,33 @@ impl MemorySnapshot {
 
 #[derive(Clone)]
 pub struct MemoryBudget {
-    inner: Arc<Mutex<MemoryBudgetInner>>
+    inner: Arc<Mutex<MemoryBudgetInner>>,
 }
 
 struct MemoryBudgetInner {
     capacity: i64,
     allocated: i64,
     used: i64,
-    allocation_incr_id: i64
+    allocation_incr_id: i64,
 }
 
 impl MemoryBudget {
     fn new(capacity: i64) -> MemoryBudget {
         GAUGE_MEMORY_CAPACITY.set(capacity);
         MemoryBudget {
-            inner: Arc::new(
-                Mutex::new(
-                    MemoryBudgetInner {
-                        capacity,
-                        allocated: 0,
-                        used: 0,
-                        allocation_incr_id: 0
-                    }
-                )
-            )
+            inner: Arc::new(Mutex::new(MemoryBudgetInner {
+                capacity,
+                allocated: 0,
+                used: 0,
+                allocation_incr_id: 0,
+            })),
         }
     }
 
     pub async fn snapshot(&self) -> MemorySnapshot {
         let mut inner = self.inner.lock().await;
-        (
-            inner.capacity,
-            inner.allocated,
-            inner.used
-        ).into()
+        (inner.capacity, inner.allocated, inner.used).into()
     }
-
 
     async fn pre_allocate(&self, size: i64) -> Result<(bool, i64)> {
         let mut inner = self.inner.lock().await;
@@ -530,22 +561,24 @@ impl MemoryBudget {
     }
 }
 
-
 #[cfg(test)]
 mod test {
-    use core::panic;
-    use std::borrow::Borrow;
-    use std::collections::BTreeMap;
-    use std::io::Read;
-    use async_trait::async_trait;
-    use bytes::{Bytes, BytesMut};
-    use dashmap::DashMap;
-    use crate::app::{PartitionedUId, ReadingOptions, ReadingViewContext, RequireBufferContext, WritingViewContext};
+    use crate::app::{
+        PartitionedUId, ReadingOptions, ReadingViewContext, RequireBufferContext,
+        WritingViewContext,
+    };
     use crate::config::HybridStoreConfig;
-    use crate::store::{PartitionedDataBlock, PartitionedMemoryData, ResponseData, Store};
     use crate::store::memory::MemoryStore;
     use crate::store::ResponseData::mem;
     use crate::store::ResponseDataIndex::local;
+    use crate::store::{PartitionedDataBlock, PartitionedMemoryData, ResponseData, Store};
+    use async_trait::async_trait;
+    use bytes::{Bytes, BytesMut};
+    use core::panic;
+    use dashmap::DashMap;
+    use std::borrow::Borrow;
+    use std::collections::BTreeMap;
+    use std::io::Read;
 
     #[tokio::test]
     async fn test_read_buffer_in_flight() {
@@ -553,31 +586,75 @@ mod test {
         let uid = PartitionedUId {
             app_id: "100".to_string(),
             shuffle_id: 0,
-            partition_id: 0
+            partition_id: 0,
         };
         let writingViewCtx = create_writing_ctx_with_blocks(10, 10, uid.clone());
         let _ = store.insert(writingViewCtx).await;
 
-
         let default_single_read_size = 20;
 
         // case1: read from -1
-        let mem_data = get_data_with_last_block_id(default_single_read_size,-1, &store, uid.clone()).await;
+        let mem_data =
+            get_data_with_last_block_id(default_single_read_size, -1, &store, uid.clone()).await;
         assert_eq!(2, mem_data.shuffle_data_block_segments.len());
-        assert_eq!(0, mem_data.shuffle_data_block_segments.get(0).unwrap().block_id);
-        assert_eq!(1, mem_data.shuffle_data_block_segments.get(1).unwrap().block_id);
+        assert_eq!(
+            0,
+            mem_data
+                .shuffle_data_block_segments
+                .get(0)
+                .unwrap()
+                .block_id
+        );
+        assert_eq!(
+            1,
+            mem_data
+                .shuffle_data_block_segments
+                .get(1)
+                .unwrap()
+                .block_id
+        );
 
         // case2: when the last_block_id doesn't exist, it should return the data like when last_block_id=-1
-        let mem_data = get_data_with_last_block_id(default_single_read_size,100, &store, uid.clone()).await;
+        let mem_data =
+            get_data_with_last_block_id(default_single_read_size, 100, &store, uid.clone()).await;
         assert_eq!(2, mem_data.shuffle_data_block_segments.len());
-        assert_eq!(0, mem_data.shuffle_data_block_segments.get(0).unwrap().block_id);
-        assert_eq!(1, mem_data.shuffle_data_block_segments.get(1).unwrap().block_id);
+        assert_eq!(
+            0,
+            mem_data
+                .shuffle_data_block_segments
+                .get(0)
+                .unwrap()
+                .block_id
+        );
+        assert_eq!(
+            1,
+            mem_data
+                .shuffle_data_block_segments
+                .get(1)
+                .unwrap()
+                .block_id
+        );
 
         // case3: read from 3
-        let mem_data = get_data_with_last_block_id(default_single_read_size, 3, &store, uid.clone()).await;
+        let mem_data =
+            get_data_with_last_block_id(default_single_read_size, 3, &store, uid.clone()).await;
         assert_eq!(2, mem_data.shuffle_data_block_segments.len());
-        assert_eq!(4, mem_data.shuffle_data_block_segments.get(0).unwrap().block_id);
-        assert_eq!(5, mem_data.shuffle_data_block_segments.get(1).unwrap().block_id);
+        assert_eq!(
+            4,
+            mem_data
+                .shuffle_data_block_segments
+                .get(0)
+                .unwrap()
+                .block_id
+        );
+        assert_eq!(
+            5,
+            mem_data
+                .shuffle_data_block_segments
+                .get(1)
+                .unwrap()
+                .block_id
+        );
 
         // case4: some data are in inflight blocks
         let mut buffer = store.get_or_create_underlying_staging_buffer(uid.clone());
@@ -592,73 +669,112 @@ mod test {
         drop(buffer);
 
         // all data will be fetched from in_flight data
-        let mem_data = get_data_with_last_block_id(default_single_read_size, 3, &store, uid.clone()).await;
+        let mem_data =
+            get_data_with_last_block_id(default_single_read_size, 3, &store, uid.clone()).await;
         assert_eq!(2, mem_data.shuffle_data_block_segments.len());
-        assert_eq!(4, mem_data.shuffle_data_block_segments.get(0).unwrap().block_id);
-        assert_eq!(5, mem_data.shuffle_data_block_segments.get(1).unwrap().block_id);
+        assert_eq!(
+            4,
+            mem_data
+                .shuffle_data_block_segments
+                .get(0)
+                .unwrap()
+                .block_id
+        );
+        assert_eq!(
+            5,
+            mem_data
+                .shuffle_data_block_segments
+                .get(1)
+                .unwrap()
+                .block_id
+        );
 
         // case5: old data in in_flight and latest data in staging.
         // read it from the block id 9, and read size of 30
         let mut buffer = store.get_or_create_underlying_staging_buffer(uid.clone());
         let mut buffer = buffer.lock().await;
-        buffer.staging.push(
-            PartitionedDataBlock {
-                block_id: 20,
-                length: 10,
-                uncompress_length: 0,
-                crc: 0,
-                data: BytesMut::with_capacity(10).freeze(),
-                task_attempt_id: 0
-            }
-        );
+        buffer.staging.push(PartitionedDataBlock {
+            block_id: 20,
+            length: 10,
+            uncompress_length: 0,
+            crc: 0,
+            data: BytesMut::with_capacity(10).freeze(),
+            task_attempt_id: 0,
+        });
         drop(buffer);
 
         let mem_data = get_data_with_last_block_id(30, 7, &store, uid.clone()).await;
         assert_eq!(3, mem_data.shuffle_data_block_segments.len());
-        assert_eq!(8, mem_data.shuffle_data_block_segments.get(0).unwrap().block_id);
-        assert_eq!(9, mem_data.shuffle_data_block_segments.get(1).unwrap().block_id);
-        assert_eq!(20, mem_data.shuffle_data_block_segments.get(2).unwrap().block_id);
+        assert_eq!(
+            8,
+            mem_data
+                .shuffle_data_block_segments
+                .get(0)
+                .unwrap()
+                .block_id
+        );
+        assert_eq!(
+            9,
+            mem_data
+                .shuffle_data_block_segments
+                .get(1)
+                .unwrap()
+                .block_id
+        );
+        assert_eq!(
+            20,
+            mem_data
+                .shuffle_data_block_segments
+                .get(2)
+                .unwrap()
+                .block_id
+        );
 
         // case6: read the end to return empty result
         let mem_data = get_data_with_last_block_id(30, 20, &store, uid.clone()).await;
         assert_eq!(0, mem_data.shuffle_data_block_segments.len());
     }
 
-    async fn get_data_with_last_block_id(default_single_read_size: i64, last_block_id: i64, store: &MemoryStore, uid: PartitionedUId) -> PartitionedMemoryData {
+    async fn get_data_with_last_block_id(
+        default_single_read_size: i64,
+        last_block_id: i64,
+        store: &MemoryStore,
+        uid: PartitionedUId,
+    ) -> PartitionedMemoryData {
         let ctx = ReadingViewContext {
             uid: uid.clone(),
             reading_options: ReadingOptions::MEMORY_LAST_BLOCK_ID_AND_MAX_SIZE(
-                last_block_id, default_single_read_size
-            )
+                last_block_id,
+                default_single_read_size,
+            ),
         };
         if let Ok(data) = store.get(ctx).await {
             match data {
                 mem(mem_data) => mem_data,
-                _ => panic!()
+                _ => panic!(),
             }
         } else {
             panic!();
         }
     }
 
-    fn create_writing_ctx_with_blocks(block_number: i32, single_block_size: i32, uid: PartitionedUId) -> WritingViewContext {
+    fn create_writing_ctx_with_blocks(
+        block_number: i32,
+        single_block_size: i32,
+        uid: PartitionedUId,
+    ) -> WritingViewContext {
         let mut data_blocks = vec![];
         for idx in 0..=9 {
-            data_blocks.push(
-                PartitionedDataBlock {
-                    block_id: idx,
-                    length: single_block_size.clone(),
-                    uncompress_length: 0,
-                    crc: 0,
-                    data: BytesMut::with_capacity(single_block_size as usize).freeze(),
-                    task_attempt_id: 0
-                }
-            );
+            data_blocks.push(PartitionedDataBlock {
+                block_id: idx,
+                length: single_block_size.clone(),
+                uncompress_length: 0,
+                crc: 0,
+                data: BytesMut::with_capacity(single_block_size as usize).freeze(),
+                task_attempt_id: 0,
+            });
         }
-        WritingViewContext {
-            uid,
-            data_blocks
-        }
+        WritingViewContext { uid, data_blocks }
     }
 
     #[tokio::test]
@@ -668,15 +784,15 @@ mod test {
             uid: PartitionedUId {
                 app_id: "100".to_string(),
                 shuffle_id: 0,
-                partition_id: 0
+                partition_id: 0,
             },
-            size: 10000
+            size: 10000,
         };
         match store.require_buffer(ctx).await {
             Ok(_) => {
                 store.purge("100".to_string()).await;
             }
-            _ => panic!()
+            _ => panic!(),
         }
 
         let budget = store.budget.inner.lock().await;
@@ -699,7 +815,7 @@ mod test {
                     uncompress_length: 100,
                     crc: 99,
                     data: Default::default(),
-                    task_attempt_id: 0
+                    task_attempt_id: 0,
                 },
                 PartitionedDataBlock {
                     block_id: 1,
@@ -707,15 +823,15 @@ mod test {
                     uncompress_length: 200,
                     crc: 99,
                     data: Default::default(),
-                    task_attempt_id: 1
-                }
-            ]
+                    task_attempt_id: 1,
+                },
+            ],
         };
         store.insert(writingCtx).await.unwrap();
 
         let readingCtx = ReadingViewContext {
             uid: Default::default(),
-            reading_options: ReadingOptions::MEMORY_LAST_BLOCK_ID_AND_MAX_SIZE(-1, 1000000)
+            reading_options: ReadingOptions::MEMORY_LAST_BLOCK_ID_AND_MAX_SIZE(-1, 1000000),
         };
 
         match store.get(readingCtx).await.unwrap() {
@@ -723,8 +839,8 @@ mod test {
                 assert_eq!(data.shuffle_data_block_segments.len(), 2);
                 assert_eq!(data.shuffle_data_block_segments.get(0).unwrap().offset, 0);
                 assert_eq!(data.shuffle_data_block_segments.get(1).unwrap().offset, 10);
-            },
-            _ => panic!("should not")
+            }
+            _ => panic!("should not"),
         }
     }
 }

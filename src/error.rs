@@ -1,12 +1,12 @@
-use std::fmt::{Display, Formatter, Write};
+use crate::app::PurgeEvent;
+use crate::error::DatanodeError::Other;
 use anyhow::Error;
 use crossbeam_channel::SendError;
 use log::error;
 use poem::error::ParseQueryError;
+use std::fmt::{Display, Formatter, Write};
 use thiserror::Error;
 use tokio::sync::AcquireError;
-use crate::app::PurgeEvent;
-use crate::error::DatanodeError::Other;
 
 #[derive(Error, Debug)]
 pub enum DatanodeError {
@@ -49,11 +49,11 @@ impl From<ParseQueryError> for DatanodeError {
 
 #[cfg(test)]
 mod tests {
-    use anyhow::{Result, anyhow, bail};
     use crate::error::DatanodeError;
+    use anyhow::{anyhow, bail, Result};
 
     #[test]
-    pub fn error_test() -> Result<()>{
+    pub fn error_test() -> Result<()> {
         // bail macro means it will return directly.
         // bail!(DatanodeError::APP_PURGE_EVENT_SEND_ERROR("error_test_app_id".into(), None));
         Ok(())

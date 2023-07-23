@@ -1,5 +1,5 @@
-use std::{env, fs};
 use std::path::Path;
+use std::{env, fs};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // generate the uniffle code for grpc server
@@ -30,7 +30,6 @@ fn rename_file(file_path: impl AsRef<Path>, renamed_path: impl AsRef<Path>) {
     fs::rename(&f, renamed_path).expect("Errors on renaming file.");
 }
 
-
 fn setup_ld_library_path() {
     // java_home is required now to build and test
     let java_home = env::var("JAVA_HOME").expect("JAVA_HOME must be set");
@@ -38,24 +37,25 @@ fn setup_ld_library_path() {
         format!("{java_home}/jre/lib/amd64/server/"),
         format!("{java_home}/lib/server"),
         format!("{java_home}/jre/lib/server"),
-        format!("{java_home}/jre/lib/amd64/server")
+        format!("{java_home}/jre/lib/amd64/server"),
     ];
-    let lib_jvm_path = possible_lib_paths.iter().find(|&path| {
-        let path = Path::new(&path);
-        path.exists()
-    }).expect("java_home is not valid");
+    let lib_jvm_path = possible_lib_paths
+        .iter()
+        .find(|&path| {
+            let path = Path::new(&path);
+            path.exists()
+        })
+        .expect("java_home is not valid");
     match env::consts::OS {
         "linux" => {
             let ld_path = env::var_os("LD_LIBRARY_PATH").unwrap_or("".parse().unwrap());
-            let ld_path = format!("{}:{}",
-                                  ld_path.to_str().unwrap(), lib_jvm_path);
+            let ld_path = format!("{}:{}", ld_path.to_str().unwrap(), lib_jvm_path);
             // this might be anti-pattern, but it works for our current setup
             println!("cargo:rustc-env=LD_LIBRARY_PATH={}", ld_path);
         }
         "macos" => {
             let ld_path = env::var_os("DYLD_LIBRARY_PATH").unwrap_or("".parse().unwrap());
-            let ld_path = format!("{}:{}",
-                                  ld_path.to_str().unwrap(), lib_jvm_path);
+            let ld_path = format!("{}:{}", ld_path.to_str().unwrap(), lib_jvm_path);
             // this might be anti-pattern, but it works for our current setup
             println!("cargo:rustc-env=DYLD_LIBRARY_PATH={}", ld_path);
         }

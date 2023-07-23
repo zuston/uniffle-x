@@ -1,14 +1,27 @@
-use std::ops::Deref;
+use crate::app::{
+    AppManagerRef, GetBlocksContext, PartitionedUId, ReadingIndexViewContext, ReadingOptions,
+    ReadingViewContext, ReportBlocksContext, RequireBufferContext, WritingViewContext,
+};
+use crate::proto::uniffle::coordinator_server_server::CoordinatorServer;
+use crate::proto::uniffle::shuffle_server_server::ShuffleServer;
+use crate::proto::uniffle::{
+    AppHeartBeatRequest, AppHeartBeatResponse, FinishShuffleRequest, FinishShuffleResponse,
+    GetLocalShuffleDataRequest, GetLocalShuffleDataResponse, GetLocalShuffleIndexRequest,
+    GetLocalShuffleIndexResponse, GetMemoryShuffleDataRequest, GetMemoryShuffleDataResponse,
+    GetShuffleResultForMultiPartRequest, GetShuffleResultForMultiPartResponse,
+    GetShuffleResultRequest, GetShuffleResultResponse, ReportShuffleResultRequest,
+    ReportShuffleResultResponse, RequireBufferRequest, RequireBufferResponse,
+    SendShuffleDataRequest, SendShuffleDataResponse, ShuffleCommitRequest, ShuffleCommitResponse,
+    ShuffleRegisterRequest, ShuffleRegisterResponse, ShuffleUnregisterRequest,
+    ShuffleUnregisterResponse,
+};
+use crate::store::{PartitionedData, PartitionedDataBlock, ResponseData, ResponseDataIndex};
 use bytes::{BufMut, BytesMut};
 use futures::future::err;
 use log::{debug, error, info, warn};
+use std::ops::Deref;
 use toml::Value::String;
 use tonic::{Request, Response, Status};
-use crate::app::{AppManagerRef, GetBlocksContext, PartitionedUId, ReadingIndexViewContext, ReadingOptions, ReadingViewContext, ReportBlocksContext, RequireBufferContext, WritingViewContext};
-use crate::proto::uniffle::shuffle_server_server::ShuffleServer;
-use crate::proto::uniffle::{AppHeartBeatRequest, AppHeartBeatResponse, FinishShuffleRequest, FinishShuffleResponse, GetLocalShuffleDataRequest, GetLocalShuffleDataResponse, GetLocalShuffleIndexRequest, GetLocalShuffleIndexResponse, GetMemoryShuffleDataRequest, GetMemoryShuffleDataResponse, GetShuffleResultForMultiPartRequest, GetShuffleResultForMultiPartResponse, GetShuffleResultRequest, GetShuffleResultResponse, ReportShuffleResultRequest, ReportShuffleResultResponse, RequireBufferRequest, RequireBufferResponse, SendShuffleDataRequest, SendShuffleDataResponse, ShuffleCommitRequest, ShuffleCommitResponse, ShuffleRegisterRequest, ShuffleRegisterResponse, ShuffleUnregisterRequest, ShuffleUnregisterResponse};
-use crate::proto::uniffle::coordinator_server_server::CoordinatorServer;
-use crate::store::{PartitionedData, PartitionedDataBlock, ResponseData, ResponseDataIndex};
 
 enum StatusCode {
     SUCCESS = 0,
@@ -28,46 +41,51 @@ impl Into<i32> for StatusCode {
 }
 
 pub struct DefaultShuffleServer {
-    app_manager_ref: AppManagerRef
+    app_manager_ref: AppManagerRef,
 }
 
 impl DefaultShuffleServer {
     pub fn from(appManagerRef: AppManagerRef) -> DefaultShuffleServer {
         DefaultShuffleServer {
-            app_manager_ref: appManagerRef
+            app_manager_ref: appManagerRef,
         }
     }
 }
 
 #[tonic::async_trait]
 impl ShuffleServer for DefaultShuffleServer {
-    async fn register_shuffle(&self, request: Request<ShuffleRegisterRequest>) -> Result<Response<ShuffleRegisterResponse>, Status> {
+    async fn register_shuffle(
+        &self,
+        request: Request<ShuffleRegisterRequest>,
+    ) -> Result<Response<ShuffleRegisterResponse>, Status> {
         let inner = request.into_inner();
-        let status =
-            self.app_manager_ref
-                .register(inner.app_id, inner.shuffle_id)
-                .map_or(StatusCode::INTERNAL_ERROR, |_| StatusCode::SUCCESS)
-                .into();
-        Ok(
-            Response::new(ShuffleRegisterResponse {
-                status,
-                ret_msg: "".to_string()
-            })
-        )
+        let status = self
+            .app_manager_ref
+            .register(inner.app_id, inner.shuffle_id)
+            .map_or(StatusCode::INTERNAL_ERROR, |_| StatusCode::SUCCESS)
+            .into();
+        Ok(Response::new(ShuffleRegisterResponse {
+            status,
+            ret_msg: "".to_string(),
+        }))
     }
 
-    async fn unregister_shuffle(&self, request: Request<ShuffleUnregisterRequest>) -> Result<Response<ShuffleUnregisterResponse>, Status> {
+    async fn unregister_shuffle(
+        &self,
+        request: Request<ShuffleUnregisterRequest>,
+    ) -> Result<Response<ShuffleUnregisterResponse>, Status> {
         // todo: implement shuffle level deletion
         info!("Accepted unregister shuffle info....");
-        Ok(
-            Response::new(ShuffleUnregisterResponse {
-                status: StatusCode::SUCCESS.into(),
-                ret_msg: "".to_string()
-            })
-        )
+        Ok(Response::new(ShuffleUnregisterResponse {
+            status: StatusCode::SUCCESS.into(),
+            ret_msg: "".to_string(),
+        }))
     }
 
-    async fn send_shuffle_data(&self, request: Request<SendShuffleDataRequest>) -> Result<Response<SendShuffleDataResponse>, Status> {
+    async fn send_shuffle_data(
+        &self,
+        request: Request<SendShuffleDataRequest>,
+    ) -> Result<Response<SendShuffleDataResponse>, Status> {
         let req = request.into_inner();
         let app_id = req.app_id;
         let shuffle_id: i32 = req.shuffle_id;
@@ -75,12 +93,10 @@ impl ShuffleServer for DefaultShuffleServer {
         let app_option = self.app_manager_ref.get_app(&app_id);
 
         if app_option.is_none() {
-            return Ok(
-                Response::new(SendShuffleDataResponse {
-                    status: StatusCode::NO_REGISTER.into(),
-                    ret_msg: "The app is not found".to_string()
-                })
-            );
+            return Ok(Response::new(SendShuffleDataResponse {
+                status: StatusCode::NO_REGISTER.into(),
+                ret_msg: "The app is not found".to_string(),
+            }));
         }
 
         let mut app = app_option.unwrap();
@@ -93,33 +109,36 @@ impl ShuffleServer for DefaultShuffleServer {
                 uid: PartitionedUId {
                     app_id: app_id.clone(),
                     shuffle_id,
-                    partition_id: data.partitionId
+                    partition_id: data.partitionId,
                 },
-                data_blocks: partitioned_blocks
+                data_blocks: partitioned_blocks,
             };
 
             let inserted = app.insert(ctx).await;
             if inserted.is_err() {
-                let err = format!("Errors on putting data. app_id: {}, err: {:?}", &app_id, inserted.err());
+                let err = format!(
+                    "Errors on putting data. app_id: {}, err: {:?}",
+                    &app_id,
+                    inserted.err()
+                );
                 error!("{}", &err);
-                return Ok(
-                    Response::new(SendShuffleDataResponse {
-                        status: StatusCode::INTERNAL_ERROR.into(),
-                        ret_msg: err,
-                    })
-                )
+                return Ok(Response::new(SendShuffleDataResponse {
+                    status: StatusCode::INTERNAL_ERROR.into(),
+                    ret_msg: err,
+                }));
             }
         }
 
-        Ok(
-            Response::new(SendShuffleDataResponse {
-                status: StatusCode::SUCCESS.into(),
-                ret_msg: "".to_string()
-            })
-        )
+        Ok(Response::new(SendShuffleDataResponse {
+            status: StatusCode::SUCCESS.into(),
+            ret_msg: "".to_string(),
+        }))
     }
 
-    async fn get_local_shuffle_index(&self, request: Request<GetLocalShuffleIndexRequest>) -> Result<Response<GetLocalShuffleIndexResponse>, Status> {
+    async fn get_local_shuffle_index(
+        &self,
+        request: Request<GetLocalShuffleIndexRequest>,
+    ) -> Result<Response<GetLocalShuffleIndexResponse>, Status> {
         let req = request.into_inner();
         let app_id = req.app_id;
         let shuffle_id: i32 = req.shuffle_id;
@@ -130,58 +149,58 @@ impl ShuffleServer for DefaultShuffleServer {
         let app_option = self.app_manager_ref.get_app(&app_id);
 
         if app_option.is_none() {
-            return Ok(
-                Response::new(GetLocalShuffleIndexResponse {
-                    index_data: Default::default(),
-                    status: StatusCode::NO_PARTITION.into(),
-                    ret_msg: "Partition not found".to_string(),
-                    data_file_len: 0
-                })
-            );
+            return Ok(Response::new(GetLocalShuffleIndexResponse {
+                index_data: Default::default(),
+                status: StatusCode::NO_PARTITION.into(),
+                ret_msg: "Partition not found".to_string(),
+                data_file_len: 0,
+            }));
         }
 
         let app = app_option.unwrap();
 
-        let data_index_wrapper = app.list_index(ReadingIndexViewContext {
-            partition_id: PartitionedUId::from(app_id.to_string(), shuffle_id, partition_id)
-        }).await;
+        let data_index_wrapper = app
+            .list_index(ReadingIndexViewContext {
+                partition_id: PartitionedUId::from(app_id.to_string(), shuffle_id, partition_id),
+            })
+            .await;
 
         if data_index_wrapper.is_err() {
             let error_msg = data_index_wrapper.err();
-            error!("Errors on getting localfile data index for app:[{}], error: {:?}", &app_id, error_msg);
-            return Ok(
-                Response::new(GetLocalShuffleIndexResponse {
-                    index_data: Default::default(),
-                    status: StatusCode::INTERNAL_ERROR.into(),
-                    ret_msg: format!("{:?}", error_msg),
-                    data_file_len: 0,
-                })
+            error!(
+                "Errors on getting localfile data index for app:[{}], error: {:?}",
+                &app_id, error_msg
             );
+            return Ok(Response::new(GetLocalShuffleIndexResponse {
+                index_data: Default::default(),
+                status: StatusCode::INTERNAL_ERROR.into(),
+                ret_msg: format!("{:?}", error_msg),
+                data_file_len: 0,
+            }));
         }
 
         match data_index_wrapper.unwrap() {
             ResponseDataIndex::local(data_index) => {
-                Ok(
-                    Response::new(GetLocalShuffleIndexResponse {
-                        index_data: data_index.index_data,
-                        status: StatusCode::SUCCESS.into(),
-                        ret_msg: "".to_string(),
-                        data_file_len: data_index.data_file_len
-                    })
-                )
-            },
-            _ => Ok(
-                Response::new(GetLocalShuffleIndexResponse {
-                    index_data: Default::default(),
-                    status: StatusCode::INTERNAL_ERROR.into(),
-                    ret_msg: "index file not found".to_string(),
-                    data_file_len: 0
-                })
-            )
+                Ok(Response::new(GetLocalShuffleIndexResponse {
+                    index_data: data_index.index_data,
+                    status: StatusCode::SUCCESS.into(),
+                    ret_msg: "".to_string(),
+                    data_file_len: data_index.data_file_len,
+                }))
+            }
+            _ => Ok(Response::new(GetLocalShuffleIndexResponse {
+                index_data: Default::default(),
+                status: StatusCode::INTERNAL_ERROR.into(),
+                ret_msg: "index file not found".to_string(),
+                data_file_len: 0,
+            })),
         }
     }
 
-    async fn get_local_shuffle_data(&self, request: Request<GetLocalShuffleDataRequest>) -> Result<Response<GetLocalShuffleDataResponse>, Status> {
+    async fn get_local_shuffle_data(
+        &self,
+        request: Request<GetLocalShuffleDataRequest>,
+    ) -> Result<Response<GetLocalShuffleDataResponse>, Status> {
         let req = request.into_inner();
         let app_id = req.app_id;
         let shuffle_id: i32 = req.shuffle_id;
@@ -189,44 +208,49 @@ impl ShuffleServer for DefaultShuffleServer {
 
         let app = self.app_manager_ref.get_app(&app_id);
         if app.is_none() {
-            return Ok(
-                Response::new(GetLocalShuffleDataResponse {
-                    data: Default::default(),
-                    status: StatusCode::NO_REGISTER.into(),
-                    ret_msg: "No such app in this shuffle server".to_string(),
-                })
-            );
+            return Ok(Response::new(GetLocalShuffleDataResponse {
+                data: Default::default(),
+                status: StatusCode::NO_REGISTER.into(),
+                ret_msg: "No such app in this shuffle server".to_string(),
+            }));
         }
 
-        let data_fetched_result = app.unwrap().select(ReadingViewContext {
-            uid: PartitionedUId {
-                app_id: app_id.to_string(),
-                shuffle_id,
-                partition_id
-            },
-            reading_options: ReadingOptions::FILE_OFFSET_AND_LEN(
-                req.offset, req.length as i64
-            )
-        }).await;
+        let data_fetched_result = app
+            .unwrap()
+            .select(ReadingViewContext {
+                uid: PartitionedUId {
+                    app_id: app_id.to_string(),
+                    shuffle_id,
+                    partition_id,
+                },
+                reading_options: ReadingOptions::FILE_OFFSET_AND_LEN(req.offset, req.length as i64),
+            })
+            .await;
 
         if data_fetched_result.is_err() {
             let err_msg = data_fetched_result.err();
-            error!("Errors on getting localfile index for app:[{}], error: {:?}", &app_id, err_msg);
+            error!(
+                "Errors on getting localfile index for app:[{}], error: {:?}",
+                &app_id, err_msg
+            );
             return Ok(Response::new(GetLocalShuffleDataResponse {
                 data: Default::default(),
                 status: StatusCode::INTERNAL_ERROR.into(),
                 ret_msg: format!("{:?}", err_msg),
             }));
         }
-        
+
         Ok(Response::new(GetLocalShuffleDataResponse {
             data: data_fetched_result.unwrap().from_local(),
             status: StatusCode::SUCCESS.into(),
-            ret_msg: "".to_string()
+            ret_msg: "".to_string(),
         }))
     }
 
-    async fn get_memory_shuffle_data(&self, request: Request<GetMemoryShuffleDataRequest>) -> Result<Response<GetMemoryShuffleDataResponse>, Status> {
+    async fn get_memory_shuffle_data(
+        &self,
+        request: Request<GetMemoryShuffleDataRequest>,
+    ) -> Result<Response<GetMemoryShuffleDataResponse>, Status> {
         let req = request.into_inner();
         let app_id = req.app_id;
         let shuffle_id: i32 = req.shuffle_id;
@@ -234,30 +258,35 @@ impl ShuffleServer for DefaultShuffleServer {
 
         let app = self.app_manager_ref.get_app(&app_id);
         if app.is_none() {
-            return Ok(
-                Response::new(GetMemoryShuffleDataResponse {
-                    shuffle_data_block_segments: Default::default(),
-                    data: Default::default(),
-                    status: StatusCode::NO_REGISTER.into(),
-                    ret_msg: "No such app in this shuffle server".to_string(),
-                })
-            );
+            return Ok(Response::new(GetMemoryShuffleDataResponse {
+                shuffle_data_block_segments: Default::default(),
+                data: Default::default(),
+                status: StatusCode::NO_REGISTER.into(),
+                ret_msg: "No such app in this shuffle server".to_string(),
+            }));
         }
 
-        let data_fetched_result = app.unwrap().select(ReadingViewContext {
-            uid: PartitionedUId {
-                app_id: app_id.to_string(),
-                shuffle_id,
-                partition_id
-            },
-            reading_options: ReadingOptions::MEMORY_LAST_BLOCK_ID_AND_MAX_SIZE(
-                req.last_block_id, req.read_buffer_size as i64
-            )
-        }).await;
+        let data_fetched_result = app
+            .unwrap()
+            .select(ReadingViewContext {
+                uid: PartitionedUId {
+                    app_id: app_id.to_string(),
+                    shuffle_id,
+                    partition_id,
+                },
+                reading_options: ReadingOptions::MEMORY_LAST_BLOCK_ID_AND_MAX_SIZE(
+                    req.last_block_id,
+                    req.read_buffer_size as i64,
+                ),
+            })
+            .await;
 
         if data_fetched_result.is_err() {
             let error_msg = data_fetched_result.err();
-            error!("Errors on getting data from memory for [{}], error: {:?}", &app_id, error_msg);
+            error!(
+                "Errors on getting data from memory for [{}], error: {:?}",
+                &app_id, error_msg
+            );
             return Ok(Response::new(GetMemoryShuffleDataResponse {
                 shuffle_data_block_segments: vec![],
                 data: Default::default(),
@@ -269,14 +298,21 @@ impl ShuffleServer for DefaultShuffleServer {
         let data = data_fetched_result.unwrap().from_memory();
 
         Ok(Response::new(GetMemoryShuffleDataResponse {
-            shuffle_data_block_segments: data.shuffle_data_block_segments.into_iter().map(|x| x.into()).collect(),
+            shuffle_data_block_segments: data
+                .shuffle_data_block_segments
+                .into_iter()
+                .map(|x| x.into())
+                .collect(),
             data: data.data,
             status: StatusCode::SUCCESS.into(),
-            ret_msg: "".to_string()
+            ret_msg: "".to_string(),
         }))
     }
 
-    async fn commit_shuffle_task(&self, request: Request<ShuffleCommitRequest>) -> Result<Response<ShuffleCommitResponse>, Status> {
+    async fn commit_shuffle_task(
+        &self,
+        request: Request<ShuffleCommitRequest>,
+    ) -> Result<Response<ShuffleCommitResponse>, Status> {
         warn!("It has not been supported of committing shuffle data");
         Ok(Response::new(ShuffleCommitResponse {
             commit_count: 0,
@@ -285,7 +321,10 @@ impl ShuffleServer for DefaultShuffleServer {
         }))
     }
 
-    async fn report_shuffle_result(&self, request: Request<ReportShuffleResultRequest>) -> Result<Response<ReportShuffleResultResponse>, Status> {
+    async fn report_shuffle_result(
+        &self,
+        request: Request<ReportShuffleResultRequest>,
+    ) -> Result<Response<ReportShuffleResultResponse>, Status> {
         let req = request.into_inner();
         let app_id = req.app_id;
         let shuffle_id = req.shuffle_id;
@@ -293,36 +332,41 @@ impl ShuffleServer for DefaultShuffleServer {
 
         let app = self.app_manager_ref.get_app(&app_id);
         if app.is_none() {
-            return Ok(
-                Response::new(ReportShuffleResultResponse {
-                    status: StatusCode::NO_REGISTER.into(),
-                    ret_msg: "No such app in this shuffle server".to_string(),
-                })
-            );
+            return Ok(Response::new(ReportShuffleResultResponse {
+                status: StatusCode::NO_REGISTER.into(),
+                ret_msg: "No such app in this shuffle server".to_string(),
+            }));
         }
         let app = app.unwrap();
 
         for partition_to_block_id in partition_to_block_ids {
             let partition_id = partition_to_block_id.partition_id;
-            debug!("Reporting partition:{} {} blocks", partition_id, partition_to_block_id.block_ids.len());
+            debug!(
+                "Reporting partition:{} {} blocks",
+                partition_id,
+                partition_to_block_id.block_ids.len()
+            );
             let ctx = ReportBlocksContext {
                 uid: PartitionedUId {
                     app_id: app_id.clone(),
                     shuffle_id,
-                    partition_id
+                    partition_id,
                 },
-                blocks: partition_to_block_id.block_ids
+                blocks: partition_to_block_id.block_ids,
             };
             let _ = app.report_block_ids(ctx).await;
         }
 
         Ok(Response::new(ReportShuffleResultResponse {
             status: StatusCode::SUCCESS.into(),
-            ret_msg: "".to_string()
+            ret_msg: "".to_string(),
         }))
     }
 
-    async fn get_shuffle_result(&self, request: Request<GetShuffleResultRequest>) -> Result<Response<GetShuffleResultResponse>, Status> {
+    async fn get_shuffle_result(
+        &self,
+        request: Request<GetShuffleResultRequest>,
+    ) -> Result<Response<GetShuffleResultResponse>, Status> {
         let req = request.into_inner();
         let app_id = req.app_id;
         let shuffle_id = req.shuffle_id;
@@ -330,71 +374,79 @@ impl ShuffleServer for DefaultShuffleServer {
 
         let app = self.app_manager_ref.get_app(&app_id);
         if app.is_none() {
-            return Ok(
-                Response::new(GetShuffleResultResponse {
-                    status: StatusCode::NO_REGISTER.into(),
-                    ret_msg: "No such app in this shuffle server".to_string(),
-                    serialized_bitmap: Default::default(),
-                })
-            );
+            return Ok(Response::new(GetShuffleResultResponse {
+                status: StatusCode::NO_REGISTER.into(),
+                ret_msg: "No such app in this shuffle server".to_string(),
+                serialized_bitmap: Default::default(),
+            }));
         }
 
-        let block_ids_result = app.unwrap().get_block_ids(GetBlocksContext {
-            uid: PartitionedUId {
-                app_id: app_id.to_string(),
-                shuffle_id,
-                partition_id
-            }
-        }).await;
+        let block_ids_result = app
+            .unwrap()
+            .get_block_ids(GetBlocksContext {
+                uid: PartitionedUId {
+                    app_id: app_id.to_string(),
+                    shuffle_id,
+                    partition_id,
+                },
+            })
+            .await;
 
         if block_ids_result.is_err() {
             let err_msg = block_ids_result.err();
-            error!("Errors on getting shuffle block ids for app:[{}], error: {:?}", &app_id, err_msg);
-            return Ok(
-                Response::new(GetShuffleResultResponse {
-                    status: StatusCode::INTERNAL_ERROR.into(),
-                    ret_msg: format!("{:?}", err_msg),
-                    serialized_bitmap: Default::default(),
-                })
+            error!(
+                "Errors on getting shuffle block ids for app:[{}], error: {:?}",
+                &app_id, err_msg
             );
+            return Ok(Response::new(GetShuffleResultResponse {
+                status: StatusCode::INTERNAL_ERROR.into(),
+                ret_msg: format!("{:?}", err_msg),
+                serialized_bitmap: Default::default(),
+            }));
         }
 
         Ok(Response::new(GetShuffleResultResponse {
             status: StatusCode::SUCCESS.into(),
             ret_msg: "".to_string(),
-            serialized_bitmap: block_ids_result.unwrap()
+            serialized_bitmap: block_ids_result.unwrap(),
         }))
     }
 
-    async fn get_shuffle_result_for_multi_part(&self, request: Request<GetShuffleResultForMultiPartRequest>) -> Result<Response<GetShuffleResultForMultiPartResponse>, Status> {
+    async fn get_shuffle_result_for_multi_part(
+        &self,
+        request: Request<GetShuffleResultForMultiPartRequest>,
+    ) -> Result<Response<GetShuffleResultForMultiPartResponse>, Status> {
         let req = request.into_inner();
         let app_id = req.app_id;
         let shuffle_id = req.shuffle_id;
 
         let app = self.app_manager_ref.get_app(&app_id);
         if app.is_none() {
-            return Ok(
-                Response::new(GetShuffleResultForMultiPartResponse {
-                    status: StatusCode::NO_REGISTER.into(),
-                    ret_msg: "No such app in this shuffle server".to_string(),
-                    serialized_bitmap: Default::default(),
-                })
-            );
+            return Ok(Response::new(GetShuffleResultForMultiPartResponse {
+                status: StatusCode::NO_REGISTER.into(),
+                ret_msg: "No such app in this shuffle server".to_string(),
+                serialized_bitmap: Default::default(),
+            }));
         }
         let app = app.unwrap();
 
         let mut bytes_mut = BytesMut::new();
         for partition_id in req.partitions {
-            let block_ids_result = app.get_block_ids(GetBlocksContext {
-                uid: PartitionedUId {
-                    app_id: app_id.clone(),
-                    shuffle_id,
-                    partition_id
-                }
-            }).await;
+            let block_ids_result = app
+                .get_block_ids(GetBlocksContext {
+                    uid: PartitionedUId {
+                        app_id: app_id.clone(),
+                        shuffle_id,
+                        partition_id,
+                    },
+                })
+                .await;
             if block_ids_result.is_err() {
                 let err_msg = block_ids_result.err();
-                error!("Errors on getting shuffle block ids by multipart way of app:[{}], error: {:?}", &app_id, err_msg);
+                error!(
+                    "Errors on getting shuffle block ids by multipart way of app:[{}], error: {:?}",
+                    &app_id, err_msg
+                );
                 return Ok(Response::new(GetShuffleResultForMultiPartResponse {
                     status: StatusCode::INTERNAL_ERROR.into(),
                     ret_msg: format!("{:?}", err_msg),
@@ -404,77 +456,82 @@ impl ShuffleServer for DefaultShuffleServer {
             bytes_mut.put(block_ids_result.unwrap());
         }
 
-
         Ok(Response::new(GetShuffleResultForMultiPartResponse {
             status: 0,
             ret_msg: "".to_string(),
-            serialized_bitmap: bytes_mut.freeze()
+            serialized_bitmap: bytes_mut.freeze(),
         }))
     }
 
-    async fn finish_shuffle(&self, request: Request<FinishShuffleRequest>) -> Result<Response<FinishShuffleResponse>, Status> {
+    async fn finish_shuffle(
+        &self,
+        request: Request<FinishShuffleRequest>,
+    ) -> Result<Response<FinishShuffleResponse>, Status> {
         info!("Accepted unregister shuffle info....");
-        Ok(
-            Response::new(FinishShuffleResponse {
-                status: StatusCode::SUCCESS.into(),
-                ret_msg: "".to_string()
-            })
-        )
+        Ok(Response::new(FinishShuffleResponse {
+            status: StatusCode::SUCCESS.into(),
+            ret_msg: "".to_string(),
+        }))
     }
 
-    async fn require_buffer(&self, request: Request<RequireBufferRequest>) -> Result<Response<RequireBufferResponse>, Status> {
+    async fn require_buffer(
+        &self,
+        request: Request<RequireBufferRequest>,
+    ) -> Result<Response<RequireBufferResponse>, Status> {
         let req = request.into_inner();
         let app_id = req.app_id;
         let shuffle_id = req.shuffle_id;
 
         let app = self.app_manager_ref.get_app(&app_id);
         if app.is_none() {
-            return Ok(
-                Response::new(RequireBufferResponse {
-                    require_buffer_id: 0,
-                    status: StatusCode::NO_REGISTER.into(),
-                    ret_msg: "No such app in this shuffle server".to_string(),
-                })
-            );
+            return Ok(Response::new(RequireBufferResponse {
+                require_buffer_id: 0,
+                status: StatusCode::NO_REGISTER.into(),
+                ret_msg: "No such app in this shuffle server".to_string(),
+            }));
         }
-        let app = app.unwrap().require_buffer(RequireBufferContext {
-            uid: PartitionedUId {
-                app_id,
-                shuffle_id,
-                // ignore this.
-                partition_id: 1
-            },
-            size: req.require_size as i64
-        }).await;
+        let app = app
+            .unwrap()
+            .require_buffer(RequireBufferContext {
+                uid: PartitionedUId {
+                    app_id,
+                    shuffle_id,
+                    // ignore this.
+                    partition_id: 1,
+                },
+                size: req.require_size as i64,
+            })
+            .await;
 
         let res = match app {
-            Ok(requiredBufferRes) => {
-                (StatusCode::SUCCESS, requiredBufferRes.ticket_id, "".to_string())
-            },
-            Err(err) => {
-                (StatusCode::NO_BUFFER, -1i64, format!("{:?}", err))
-            }
+            Ok(requiredBufferRes) => (
+                StatusCode::SUCCESS,
+                requiredBufferRes.ticket_id,
+                "".to_string(),
+            ),
+            Err(err) => (StatusCode::NO_BUFFER, -1i64, format!("{:?}", err)),
         };
 
         Ok(Response::new(RequireBufferResponse {
             require_buffer_id: res.1,
             status: res.0.into(),
-            ret_msg: res.2
+            ret_msg: res.2,
         }))
     }
 
-    async fn app_heartbeat(&self, request: Request<AppHeartBeatRequest>) -> Result<Response<AppHeartBeatResponse>, Status> {
+    async fn app_heartbeat(
+        &self,
+        request: Request<AppHeartBeatRequest>,
+    ) -> Result<Response<AppHeartBeatResponse>, Status> {
         let app_id = request.into_inner().app_id;
         info!("Accepted heartbeat for app: {:#?}", &app_id);
 
         let app = self.app_manager_ref.get_app(&app_id);
         if app.is_none() {
-            return Ok(
-                Response::new(AppHeartBeatResponse {
-                    status: StatusCode::NO_REGISTER.into(),
-                    ret_msg: "No such app in this shuffle server".to_string(),
-                })
-            );
+            return Ok(Response::new(AppHeartBeatResponse {
+                status: StatusCode::NO_REGISTER.into(),
+                ret_msg: "No such app in this shuffle server".to_string(),
+            }));
         }
 
         let app = app.unwrap();
@@ -482,7 +539,7 @@ impl ShuffleServer for DefaultShuffleServer {
 
         Ok(Response::new(AppHeartBeatResponse {
             status: StatusCode::SUCCESS.into(),
-            ret_msg: "".to_string()
+            ret_msg: "".to_string(),
         }))
     }
 }

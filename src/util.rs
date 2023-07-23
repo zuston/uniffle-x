@@ -1,12 +1,12 @@
+use bytes::Bytes;
+use crc32fast::Hasher;
 use std::cell::RefCell;
 use std::cmp::max;
 use std::collections::hash_map::DefaultHasher;
-use std::hash::{Hash};
+use std::hash::Hash;
 use std::net::IpAddr;
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
-use bytes::Bytes;
-use crc32fast::Hasher;
 
 pub fn get_local_ip() -> Result<IpAddr, std::io::Error> {
     let ip = std::env::var("DATANODE_IP");
@@ -44,26 +44,23 @@ pub fn get_crc(bytes: &Bytes) -> i64 {
 
 pub fn current_timestamp_sec() -> u64 {
     let current_time = SystemTime::now();
-    let timestamp = current_time
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_secs();
+    let timestamp = current_time.duration_since(UNIX_EPOCH).unwrap().as_secs();
     timestamp
 }
 
 pub struct ConcurrencyLimiter {
-    remaining: Mutex<u32>
+    remaining: Mutex<u32>,
 }
 
 pub struct Ticket<'a> {
     limiter: &'a ConcurrencyLimiter,
-    id: u32
+    id: u32,
 }
 
 impl ConcurrencyLimiter {
     fn new(size: u32) -> Self {
         ConcurrencyLimiter {
-            remaining: Mutex::new(size)
+            remaining: Mutex::new(size),
         }
     }
 
@@ -74,12 +71,7 @@ impl ConcurrencyLimiter {
         } else {
             let id = *remaining;
             *remaining -= 1;
-            Some(
-                Ticket {
-                    limiter: self,
-                    id
-                }
-            )
+            Some(Ticket { limiter: self, id })
         }
     }
 }
@@ -93,9 +85,9 @@ impl Drop for Ticket<'_> {
 
 #[cfg(test)]
 mod test {
-    use std::sync::Arc;
+    use crate::util::{current_timestamp_sec, get_crc, ConcurrencyLimiter, Ticket};
     use bytes::Bytes;
-    use crate::util::{current_timestamp_sec, get_crc, Ticket, ConcurrencyLimiter};
+    use std::sync::Arc;
 
     #[test]
     fn ticket_test() {
@@ -128,6 +120,5 @@ mod test {
     }
 
     #[test]
-    fn drop_test() {
-    }
+    fn drop_test() {}
 }

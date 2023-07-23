@@ -1,3 +1,26 @@
+use crate::config::Config;
+use crate::error::DatanodeError;
+use crate::metric::{
+    GAUGE_APP_NUMBER, GAUGE_PARTITION_NUMBER, TOTAL_APP_NUMBER,
+    TOTAL_HUGE_PARTITION_REQUIRE_BUFFER_FAILED, TOTAL_RECEIVED_DATA, TOTAL_REQUIRE_BUFFER_FAILED,
+};
+use crate::proto::uniffle::ShuffleData;
+use crate::readable_size::ReadableSize;
+use crate::store;
+use crate::store::hybrid::HybridStore;
+use crate::store::memory::{MemorySnapshot, MemoryStore};
+use crate::store::{
+    PartitionedData, PartitionedDataBlock, RequireBufferResponse, ResponseData, ResponseDataIndex,
+    Store, StoreProvider,
+};
+use crate::util::current_timestamp_sec;
+use anyhow::{anyhow, Result};
+use bytes::{BufMut, Bytes, BytesMut};
+use croaring::treemap::JvmSerializer;
+use croaring::Treemap;
+use dashmap::mapref::one::{Ref, RefMut};
+use dashmap::DashMap;
+use log::{debug, error, info};
 use std::borrow::BorrowMut;
 use std::collections::hash_map::DefaultHasher;
 use std::collections::HashSet;
@@ -6,36 +29,19 @@ use std::hash::{Hash, Hasher};
 use std::io::Read;
 use std::ops::Deref;
 use std::str::FromStr;
-use std::sync::{Arc, mpsc, Mutex};
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::atomic::Ordering::AcqRel;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::{mpsc, Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
-use dashmap::DashMap;
-use anyhow::{Result, anyhow};
-use bytes::{BufMut, Bytes, BytesMut};
-use croaring::Treemap;
-use croaring::treemap::JvmSerializer;
-use dashmap::mapref::one::{Ref, RefMut};
-use log::{debug, error, info};
 use tokio::runtime::Runtime;
 use tokio::sync::RwLock;
 use tokio_rustls::rustls::internal::msgs::enums::AlertDescription::InappropriateFallback;
 use tonic::codegen::ok;
-use crate::config::Config;
-use crate::error::DatanodeError;
-use crate::metric::{GAUGE_APP_NUMBER, GAUGE_PARTITION_NUMBER, TOTAL_APP_NUMBER, TOTAL_HUGE_PARTITION_REQUIRE_BUFFER_FAILED, TOTAL_RECEIVED_DATA, TOTAL_REQUIRE_BUFFER_FAILED};
-use crate::proto::uniffle::ShuffleData;
-use crate::readable_size::ReadableSize;
-use crate::store;
-use crate::store::{PartitionedData, PartitionedDataBlock, RequireBufferResponse, ResponseData, ResponseDataIndex, Store, StoreProvider};
-use crate::store::hybrid::HybridStore;
-use crate::store::memory::{MemorySnapshot, MemoryStore};
-use crate::util::current_timestamp_sec;
 
 #[derive(Debug, Clone)]
 enum DataDistribution {
     NORMAL,
-    LOCAL_ORDER
+    LOCAL_ORDER,
 }
 
 pub const MAX_CONCURRENCY_PER_PARTITION_TO_WRITE: i32 = 20;
@@ -43,14 +49,14 @@ pub const MAX_CONCURRENCY_PER_PARTITION_TO_WRITE: i32 = 20;
 #[derive(Debug, Clone)]
 struct AppConfigOptions {
     data_distribution: DataDistribution,
-    max_concurrency_per_partition_to_write: i32
+    max_concurrency_per_partition_to_write: i32,
 }
 
 impl Default for AppConfigOptions {
     fn default() -> Self {
         AppConfigOptions {
             data_distribution: DataDistribution::LOCAL_ORDER,
-            max_concurrency_per_partition_to_write: 20
+            max_concurrency_per_partition_to_write: 20,
         }
     }
 }
@@ -66,12 +72,12 @@ pub struct App {
     store: Arc<HybridStore>,
     bitmap_of_blocks: DashMap<i32, DashMap<i32, PartitionedMeta>>,
     huge_partition_marked_threshold: Option<u64>,
-    huge_partition_memory_max_available_size: Option<u64>
+    huge_partition_memory_max_available_size: Option<u64>,
 }
 
 #[derive(Clone)]
 struct PartitionedMeta {
-    inner: Arc<RwLock<PartitionedMetaInner>>
+    inner: Arc<RwLock<PartitionedMetaInner>>,
 }
 
 struct PartitionedMetaInner {
@@ -84,16 +90,14 @@ impl PartitionedMeta {
         PartitionedMeta {
             inner: Arc::new(RwLock::new(PartitionedMetaInner {
                 blocks_bitmap: Treemap::default(),
-                total_size: 0
+                total_size: 0,
             })),
         }
     }
 
     async fn get_data_size(&self) -> Result<u64> {
         let meta = self.inner.read().await;
-        Ok(
-            meta.total_size
-        )
+        Ok(meta.total_size)
     }
 
     async fn incr_data_size(&mut self, data_size: i32) -> Result<()> {
@@ -105,9 +109,7 @@ impl PartitionedMeta {
     async fn get_block_ids_bytes(&self) -> Result<Bytes> {
         let meta = self.inner.read().await;
         let serialized_data = meta.blocks_bitmap.serialize()?;
-        Ok(
-            Bytes::from(serialized_data)
-        )
+        Ok(Bytes::from(serialized_data))
     }
 
     async fn report_block_ids(&mut self, ids: Vec<i64>) -> Result<()> {
@@ -120,11 +122,13 @@ impl PartitionedMeta {
 }
 
 impl App {
-    fn from(app_id: String,
-            config_options: Option<AppConfigOptions>,
-            store: Arc<HybridStore>,
-            huge_partition_marked_threshold: Option<u64>,
-            huge_partition_memory_max_available_size: Option<u64>) -> Self {
+    fn from(
+        app_id: String,
+        config_options: Option<AppConfigOptions>,
+        store: Arc<HybridStore>,
+        huge_partition_marked_threshold: Option<u64>,
+        huge_partition_memory_max_available_size: Option<u64>,
+    ) -> Self {
         App {
             app_id,
             partitions: DashMap::new(),
@@ -148,13 +152,16 @@ impl App {
     }
 
     pub fn register_shuffle(&self, shuffle_id: i32) -> Result<()> {
-        self.partitions.entry(shuffle_id).or_insert_with(||HashSet::new());
+        self.partitions
+            .entry(shuffle_id)
+            .or_insert_with(|| HashSet::new());
         Ok(())
     }
 
     pub async fn insert(&self, ctx: WritingViewContext) -> Result<(), DatanodeError> {
         let len: i32 = ctx.data_blocks.iter().map(|block| block.length).sum();
-        self.get_underlying_partition_bitmap(ctx.uid.clone()).incr_data_size(len);
+        self.get_underlying_partition_bitmap(ctx.uid.clone())
+            .incr_data_size(len);
         TOTAL_RECEIVED_DATA.inc_by(len as u64);
 
         self.store.insert(ctx).await
@@ -164,7 +171,10 @@ impl App {
         self.store.get(ctx).await
     }
 
-    pub async fn list_index(&self, ctx: ReadingIndexViewContext) -> Result<ResponseDataIndex, DatanodeError> {
+    pub async fn list_index(
+        &self,
+        ctx: ReadingIndexViewContext,
+    ) -> Result<ResponseDataIndex, DatanodeError> {
         self.store.get_index(ctx).await
     }
 
@@ -179,8 +189,17 @@ impl App {
 
         let meta = self.get_underlying_partition_bitmap(uid.clone());
         let data_size = meta.get_data_size().await?;
-        if data_size > *huge_partition_size && self.store.get_hot_store_memory_partitioned_buffer_size(uid).await? > *huge_partition_memory {
-            info!("[{:?}] with huge partition, it has been writing speed limited", uid);
+        if data_size > *huge_partition_size
+            && self
+                .store
+                .get_hot_store_memory_partitioned_buffer_size(uid)
+                .await?
+                > *huge_partition_memory
+        {
+            info!(
+                "[{:?}] with huge partition, it has been writing speed limited",
+                uid
+            );
             TOTAL_HUGE_PARTITION_REQUIRE_BUFFER_FAILED.inc();
             Ok(true)
         } else {
@@ -188,7 +207,10 @@ impl App {
         }
     }
 
-    pub async fn require_buffer(&self, ctx: RequireBufferContext) -> Result<RequireBufferResponse, DatanodeError> {
+    pub async fn require_buffer(
+        &self,
+        ctx: RequireBufferContext,
+    ) -> Result<RequireBufferResponse, DatanodeError> {
         if self.huge_partition_limit(&ctx.uid).await? {
             TOTAL_REQUIRE_BUFFER_FAILED.inc();
             return Err(DatanodeError::MEMORY_USAGE_LIMITED_BY_HUGE_PARTITION);
@@ -200,8 +222,13 @@ impl App {
     fn get_underlying_partition_bitmap(&self, uid: PartitionedUId) -> PartitionedMeta {
         let shuffle_id = uid.shuffle_id;
         let partition_id = uid.partition_id;
-        let shuffle_entry = self.bitmap_of_blocks.entry(shuffle_id).or_insert_with(||DashMap::new());
-        let mut partitioned_meta = shuffle_entry.entry(partition_id).or_insert_with(||PartitionedMeta::new());
+        let shuffle_entry = self
+            .bitmap_of_blocks
+            .entry(shuffle_id)
+            .or_insert_with(|| DashMap::new());
+        let mut partitioned_meta = shuffle_entry
+            .entry(partition_id)
+            .or_insert_with(|| PartitionedMeta::new());
 
         partitioned_meta.clone()
     }
@@ -234,7 +261,7 @@ impl App {
 #[derive(Debug, Clone)]
 pub struct ReportBlocksContext {
     pub(crate) uid: PartitionedUId,
-    pub(crate) blocks: Vec<i64>
+    pub(crate) blocks: Vec<i64>,
 }
 
 #[derive(Debug, Clone)]
@@ -245,26 +272,26 @@ pub struct GetBlocksContext {
 #[derive(Debug, Clone)]
 pub struct WritingViewContext {
     pub uid: PartitionedUId,
-    pub data_blocks: Vec<PartitionedDataBlock>
+    pub data_blocks: Vec<PartitionedDataBlock>,
 }
 
 pub struct ReadingViewContext {
     pub uid: PartitionedUId,
-    pub reading_options: ReadingOptions
+    pub reading_options: ReadingOptions,
 }
 
 pub struct ReadingIndexViewContext {
-    pub partition_id: PartitionedUId
+    pub partition_id: PartitionedUId,
 }
 
 pub struct RequireBufferContext {
     pub uid: PartitionedUId,
-    pub size: i64
+    pub size: i64,
 }
 
 pub enum ReadingOptions {
     MEMORY_LAST_BLOCK_ID_AND_MAX_SIZE(i64, i64),
-    FILE_OFFSET_AND_LEN(i64, i64)
+    FILE_OFFSET_AND_LEN(i64, i64),
 }
 
 // ==========================================================
@@ -276,7 +303,7 @@ pub enum PurgeEvent {
     // app_id + shuffle_id
     APP_PARTIAL_SHUFFLES_PURGE(String, Vec<i32>),
     // app_id
-    APP_PURGE(String)
+    APP_PURGE(String),
 }
 
 pub type AppManagerRef = Arc<AppManager>;
@@ -288,7 +315,7 @@ pub struct AppManager {
     sender: async_channel::Sender<PurgeEvent>,
     store: Arc<HybridStore>,
     app_heartbeat_timeout_min: u32,
-    config: Config
+    config: Config,
 }
 
 impl AppManager {
@@ -303,7 +330,7 @@ impl AppManager {
             sender,
             store,
             app_heartbeat_timeout_min,
-            config
+            config,
         };
         manager
     }
@@ -325,9 +352,19 @@ impl AppManager {
                     let (key, app) = item.pair();
                     let last_time = app.get_latest_heartbeat_time();
 
-                    if current_timestamp_sec() - last_time > (app_manager_ref_cloned.app_heartbeat_timeout_min * 60) as u64 {
-                        if app_manager_ref_cloned.sender.send(PurgeEvent::HEART_BEAT_TIMEOUT(key.clone())).await.is_err() {
-                            error!("Errors on sending purge event when app: {} heartbeat timeout", key);
+                    if current_timestamp_sec() - last_time
+                        > (app_manager_ref_cloned.app_heartbeat_timeout_min * 60) as u64
+                    {
+                        if app_manager_ref_cloned
+                            .sender
+                            .send(PurgeEvent::HEART_BEAT_TIMEOUT(key.clone()))
+                            .await
+                            .is_err()
+                        {
+                            error!(
+                                "Errors on sending purge event when app: {} heartbeat timeout",
+                                key
+                            );
                         }
                     }
                 }
@@ -341,18 +378,25 @@ impl AppManager {
                 GAUGE_APP_NUMBER.dec();
                 let _ = match event {
                     PurgeEvent::HEART_BEAT_TIMEOUT(app_id) => {
-                        info!("The app:{} data of heartbeat timeout will be purged.", &app_id);
+                        info!(
+                            "The app:{} data of heartbeat timeout will be purged.",
+                            &app_id
+                        );
                         app_manager_cloned.purge_app_data(app_id).await
-                    },
+                    }
                     PurgeEvent::APP_PURGE(app_id) => {
-                        info!("The app:{} has been finished, its data will be purged.", &app_id);
+                        info!(
+                            "The app:{} has been finished, its data will be purged.",
+                            &app_id
+                        );
                         app_manager_cloned.purge_app_data(app_id).await
-                    },
+                    }
                     PurgeEvent::APP_PARTIAL_SHUFFLES_PURGE(app_id, shuffle_ids) => {
                         info!("Partial data purge is not supported currently");
                         Ok(())
                     }
-                }.map_err(|err| error!("Errors on purging data. error: {:?}", err));
+                }
+                .map_err(|err| error!("Errors on purging data. error: {:?}", err));
             }
         });
 
@@ -374,7 +418,10 @@ impl AppManager {
     async fn purge_app_data(&self, app_id: String) -> Result<()> {
         let app = self.get_app(&app_id);
         if app.is_none() {
-            error!("App:{} don't exist when purging data, this should not happen", &app_id);
+            error!(
+                "App:{} don't exist when purging data, this should not happen",
+                &app_id
+            );
         } else {
             let app = app.unwrap();
             app.purge(app_id.clone(), None).await?;
@@ -390,27 +437,43 @@ impl AppManager {
     }
 
     pub fn register(&self, app_id: String, shuffle_id: i32) -> Result<()> {
-        info!("Accepted registry. app_id: {}, shuffle_id: {}", app_id.clone(), shuffle_id);
+        info!(
+            "Accepted registry. app_id: {}, shuffle_id: {}",
+            app_id.clone(),
+            shuffle_id
+        );
         let mut appRef = self.apps.entry(app_id.clone()).or_insert_with(|| {
             TOTAL_APP_NUMBER.inc();
             GAUGE_APP_NUMBER.inc();
 
-            let capacity = ReadableSize::from_str(&self.config.memory_store.clone().unwrap().capacity).unwrap().as_bytes();
-            let huge_partition_max_available_size = Some((self.config.huge_partition_memory_max_used_percent.unwrap_or(1.0) * capacity as f64) as u64);
+            let capacity =
+                ReadableSize::from_str(&self.config.memory_store.clone().unwrap().capacity)
+                    .unwrap()
+                    .as_bytes();
+            let huge_partition_max_available_size = Some(
+                (self
+                    .config
+                    .huge_partition_memory_max_used_percent
+                    .unwrap_or(1.0)
+                    * capacity as f64) as u64,
+            );
 
             let threshold = match &self.config.huge_partition_marked_threshold {
-                Some(v) => Some(ReadableSize::from_str(v.clone().as_str()).unwrap().as_bytes()),
-                _ => None
+                Some(v) => Some(
+                    ReadableSize::from_str(v.clone().as_str())
+                        .unwrap()
+                        .as_bytes(),
+                ),
+                _ => None,
             };
 
-            Arc::new(
-                App::from(app_id,
-                          Some(AppConfigOptions::default()),
-                          self.store.clone(),
-                          threshold,
-                    huge_partition_max_available_size
-                )
-            )
+            Arc::new(App::from(
+                app_id,
+                Some(AppConfigOptions::default()),
+                self.store.clone(),
+                threshold,
+                huge_partition_max_available_size,
+            ))
         });
         appRef.register_shuffle(shuffle_id)
     }
@@ -418,7 +481,7 @@ impl AppManager {
     pub async fn unregister(&self, app_id: String, shuffle_ids: Option<Vec<i32>>) -> Result<()> {
         let event = match shuffle_ids {
             Some(ids) => PurgeEvent::APP_PARTIAL_SHUFFLES_PURGE(app_id, ids),
-            _ => PurgeEvent::APP_PURGE(app_id)
+            _ => PurgeEvent::APP_PURGE(app_id),
         };
 
         self.sender.send(event).await?;
@@ -430,7 +493,7 @@ impl AppManager {
 pub struct PartitionedUId {
     pub app_id: String,
     pub shuffle_id: i32,
-    pub partition_id: i32
+    pub partition_id: i32,
 }
 
 impl PartitionedUId {
@@ -438,7 +501,7 @@ impl PartitionedUId {
         PartitionedUId {
             app_id,
             shuffle_id,
-            partition_id
+            partition_id,
         }
     }
 
@@ -454,18 +517,21 @@ impl PartitionedUId {
 
 #[cfg(test)]
 mod test {
+    use crate::app::{
+        AppManager, GetBlocksContext, PartitionedUId, ReadingOptions, ReadingViewContext,
+        ReportBlocksContext, WritingViewContext,
+    };
+    use crate::config::{Config, HybridStoreConfig, LocalfileStoreConfig, MemoryStoreConfig};
+    use crate::store::hybrid::HybridStore;
+    use crate::store::{PartitionedDataBlock, ResponseData};
+    use croaring::treemap::JvmSerializer;
+    use croaring::Treemap;
+    use dashmap::DashMap;
     use std::collections::HashMap;
     use std::ops::Deref;
     use std::sync::Arc;
     use std::thread::sleep;
     use std::time::{Duration, Instant};
-    use croaring::Treemap;
-    use croaring::treemap::JvmSerializer;
-    use dashmap::DashMap;
-    use crate::app::{AppManager, GetBlocksContext, PartitionedUId, ReadingOptions, ReadingViewContext, ReportBlocksContext, WritingViewContext};
-    use crate::config::{Config, HybridStoreConfig, LocalfileStoreConfig, MemoryStoreConfig};
-    use crate::store::{PartitionedDataBlock, ResponseData};
-    use crate::store::hybrid::HybridStore;
 
     #[test]
     fn test_uid_hash() {
@@ -480,8 +546,8 @@ mod test {
         println!("init local file path: {}", temp_path);
 
         let mut config = Config::default();
-        config.memory_store=Some(MemoryStoreConfig {
-            capacity: (1024 * 1024).to_string()
+        config.memory_store = Some(MemoryStoreConfig {
+            capacity: (1024 * 1024).to_string(),
         });
         config.localfile_store = Some(LocalfileStoreConfig::new(vec![temp_path]));
         config.hybrid_store = Some(HybridStoreConfig::default());
@@ -500,7 +566,7 @@ mod test {
                 uid: PartitionedUId {
                     app_id: app_id.clone().into(),
                     shuffle_id: 1,
-                    partition_id: 0
+                    partition_id: 0,
                 },
                 data_blocks: vec![
                     PartitionedDataBlock {
@@ -509,7 +575,7 @@ mod test {
                         uncompress_length: 20,
                         crc: 10,
                         data: Default::default(),
-                        task_attempt_id: 0
+                        task_attempt_id: 0,
                     },
                     PartitionedDataBlock {
                         block_id: 1,
@@ -517,9 +583,9 @@ mod test {
                         uncompress_length: 30,
                         crc: 0,
                         data: Default::default(),
-                        task_attempt_id: 0
-                    }
-                ]
+                        task_attempt_id: 0,
+                    },
+                ],
             };
             let result = app.insert(writingCtx);
             if result.await.is_err() {
@@ -528,7 +594,7 @@ mod test {
 
             let readingCtx = ReadingViewContext {
                 uid: Default::default(),
-                reading_options: ReadingOptions::MEMORY_LAST_BLOCK_ID_AND_MAX_SIZE(-1, 1000000)
+                reading_options: ReadingOptions::MEMORY_LAST_BLOCK_ID_AND_MAX_SIZE(-1, 1000000),
             };
 
             // let result = app.select(readingCtx);
@@ -566,24 +632,25 @@ mod test {
             uid: PartitionedUId {
                 app_id: app_id.clone(),
                 shuffle_id: 1,
-                partition_id: 0
+                partition_id: 0,
             },
-            blocks: vec![
-                123,
-                124
-            ]
-        }).await.expect("TODO: panic message");
+            blocks: vec![123, 124],
+        })
+        .await
+        .expect("TODO: panic message");
 
-        let data = app.get_block_ids(GetBlocksContext {
-            uid: PartitionedUId {
-                app_id,
-                shuffle_id: 1,
-                partition_id: 0
-            }
-        }).await.expect("TODO: panic message");
+        let data = app
+            .get_block_ids(GetBlocksContext {
+                uid: PartitionedUId {
+                    app_id,
+                    shuffle_id: 1,
+                    partition_id: 0,
+                },
+            })
+            .await
+            .expect("TODO: panic message");
 
         let deserialized = Treemap::deserialize(&data).unwrap();
         assert_eq!(deserialized, Treemap::from_iter(vec![123, 124]));
     }
 }
-

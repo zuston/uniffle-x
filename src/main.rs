@@ -1,37 +1,37 @@
 extern crate core;
 
+use crate::app::{AppManager, AppManagerRef};
+use crate::config::{Config, LogConfig, RotationConfig};
+use crate::grpc::DefaultShuffleServer;
+use crate::http::{HTTPServer, HTTP_SERVICE};
+use crate::metric::configure_metric_service;
+use crate::proto::uniffle::coordinator_server_client::CoordinatorServerClient;
+use crate::proto::uniffle::shuffle_server_server::ShuffleServerServer;
+use crate::proto::uniffle::{ShuffleServerHeartBeatRequest, ShuffleServerId};
+use crate::util::{gen_datanode_uid, get_local_ip};
+use anyhow::Result;
+use futures::StreamExt;
+use log::info;
 use std::borrow::BorrowMut;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::time::Duration;
 use tonic::transport::{Channel, Server};
-use crate::app::{AppManager, AppManagerRef};
-use crate::grpc::DefaultShuffleServer;
-use crate::proto::uniffle::shuffle_server_server::ShuffleServerServer;
-use anyhow::Result;
-use futures::StreamExt;
-use log::info;
 use tracing_appender::non_blocking::WorkerGuard;
-use tracing_subscriber::{EnvFilter, fmt, Registry};
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
-use crate::config::{Config, LogConfig, RotationConfig};
-use crate::http::{HTTP_SERVICE, HTTPServer};
-use crate::metric::configure_metric_service;
-use crate::proto::uniffle::coordinator_server_client::CoordinatorServerClient;
-use crate::proto::uniffle::{ShuffleServerHeartBeatRequest, ShuffleServerId};
-use crate::util::{gen_datanode_uid,get_local_ip};
+use tracing_subscriber::{fmt, EnvFilter, Registry};
 
-pub mod proto;
 pub mod app;
-pub mod store;
-pub mod grpc;
-mod error;
-mod config;
-mod metric;
-mod http;
-mod util;
-mod readable_size;
 mod await_tree;
+mod config;
+mod error;
+pub mod grpc;
+mod http;
+mod metric;
+pub mod proto;
+mod readable_size;
+pub mod store;
+mod util;
 
 const DEFAULT_SHUFFLE_SERVER_TAG: &str = "ss_v4";
 
@@ -40,10 +40,9 @@ async fn schedule_coordinator_report(
     coordinator_quorum: Vec<String>,
     grpc_port: i32,
     tags: Vec<String>,
-    datanode_uid: String) -> anyhow::Result<()> {
-
+    datanode_uid: String,
+) -> anyhow::Result<()> {
     tokio::spawn(async move {
-
         let ip = get_local_ip().unwrap().to_string();
 
         info!("machine ip: {}", ip.clone());
@@ -52,13 +51,17 @@ async fn schedule_coordinator_report(
             id: datanode_uid,
             ip,
             port: grpc_port,
-            netty_port: 0
+            netty_port: 0,
         };
 
         let mut multi_coordinator_clients: Vec<CoordinatorServerClient<Channel>> =
-        futures::future::try_join_all(
-            coordinator_quorum.iter().map(|quorum| CoordinatorServerClient::connect(format!("http://{}", quorum)))
-        ).await.unwrap();
+            futures::future::try_join_all(
+                coordinator_quorum
+                    .iter()
+                    .map(|quorum| CoordinatorServerClient::connect(format!("http://{}", quorum))),
+            )
+            .await
+            .unwrap();
 
         loop {
             // todo: add interval as config var
@@ -69,25 +72,33 @@ async fn schedule_coordinator_report(
             all_tags.extend_from_slice(&*tags);
 
             let healthy = app_manager.store_is_healthy().await.unwrap_or(false);
-            let memory_snapshot = app_manager.store_memory_snapshot().await.unwrap_or((0, 0, 0).into());
-            let memory_spill_event_num = app_manager.store_memory_spill_event_num().unwrap_or(0) as i32;
+            let memory_snapshot = app_manager
+                .store_memory_snapshot()
+                .await
+                .unwrap_or((0, 0, 0).into());
+            let memory_spill_event_num =
+                app_manager.store_memory_spill_event_num().unwrap_or(0) as i32;
 
             let heartbeat_req = ShuffleServerHeartBeatRequest {
                 server_id: Some(shuffle_server_id.clone()),
                 used_memory: memory_snapshot.get_used(),
                 pre_allocated_memory: memory_snapshot.get_allocated(),
-                available_memory: memory_snapshot.get_capacity() - memory_snapshot.get_used() - memory_snapshot.get_allocated(),
+                available_memory: memory_snapshot.get_capacity()
+                    - memory_snapshot.get_used()
+                    - memory_snapshot.get_allocated(),
                 event_num_in_flush: memory_spill_event_num,
                 tags: all_tags,
                 is_healthy: Some(healthy),
                 status: 0,
-                storage_info: Default::default()
+                storage_info: Default::default(),
             };
 
             // It must use the 0..len to avoid borrow check in loop.
             for idx in 0..multi_coordinator_clients.len() {
                 let client = multi_coordinator_clients.get_mut(idx).unwrap();
-                let _ = client.heartbeat(tonic::Request::new(heartbeat_req.clone())).await;
+                let _ = client
+                    .heartbeat(tonic::Request::new(heartbeat_req.clone()))
+                    .await;
             }
         }
     });
@@ -147,33 +158,37 @@ async fn main() -> Result<()> {
         coordinator_quorum,
         rpc_port,
         tags,
-        datanode_uid).await;
+        datanode_uid,
+    )
+    .await;
 
     let http_port = config.http_monitor_service_port.unwrap_or(20010);
-    info!("Starting http monitor service with port:[{}] ......", http_port);
+    info!(
+        "Starting http monitor service with port:[{}] ......",
+        http_port
+    );
     HTTP_SERVICE.start(http_port);
 
     info!("Starting GRpc server with port:[{}] ......", rpc_port);
     let shuffle_server = DefaultShuffleServer::from(app_manager_ref);
     let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)), rpc_port as u16);
-    let service = ShuffleServerServer::new(shuffle_server).max_decoding_message_size(usize::MAX).max_encoding_message_size(usize::MAX);
-    Server::builder()
-        .add_service(service)
-        .serve(addr)
-        .await?;
+    let service = ShuffleServerServer::new(shuffle_server)
+        .max_decoding_message_size(usize::MAX)
+        .max_encoding_message_size(usize::MAX);
+    Server::builder().add_service(service).serve(addr).await?;
 
     Ok(())
 }
 
 #[cfg(test)]
 mod test {
+    use crate::get_local_ip;
+    use crate::proto::uniffle::shuffle_server_client::ShuffleServerClient;
+    use anyhow::Result;
     use std::borrow::BorrowMut;
     use std::cell::RefCell;
     use std::rc::Rc;
     use tokio_stream::StreamExt;
-    use crate::get_local_ip;
-    use crate::proto::uniffle::shuffle_server_client::ShuffleServerClient;
-    use anyhow::Result;
 
     #[test]
     fn get_local_ip_test() {
