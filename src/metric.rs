@@ -143,7 +143,7 @@ pub fn configure_metric_service(
 
     let push_gateway_endpoint = cfg.push_gateway_endpoint;
 
-    if let Some(ref endpoint) = push_gateway_endpoint {
+    if let Some(ref _endpoint) = push_gateway_endpoint {
         let push_interval_sec = cfg.push_interval_sec.unwrap_or(60);
         tokio::spawn(async move {
             info!("Starting prometheus metrics exporter...");

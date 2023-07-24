@@ -8,13 +8,11 @@ mod tests {
     };
     use datanode::proto::uniffle::shuffle_server_client::ShuffleServerClient;
     use datanode::proto::uniffle::{
-        DataDistribution, GetLocalShuffleDataRequest, GetLocalShuffleIndexRequest,
-        GetMemoryShuffleDataRequest, PartitionToBlockIds, ReportShuffleResultRequest,
+        GetLocalShuffleDataRequest, GetLocalShuffleIndexRequest, GetMemoryShuffleDataRequest,
         SendShuffleDataRequest, ShuffleBlock, ShuffleData, ShuffleRegisterRequest,
     };
     use datanode::start_datanode;
-    use datanode::util::get_crc;
-    use std::thread;
+
     use std::time::Duration;
     use tonic::transport::Channel;
 
@@ -47,10 +45,10 @@ mod tests {
     }
 
     async fn get_data_from_remote(
-        client: &ShuffleServerClient<Channel>,
-        app_id: &str,
-        shuffle_id: i32,
-        partitions: Vec<i32>,
+        _client: &ShuffleServerClient<Channel>,
+        _app_id: &str,
+        _shuffle_id: i32,
+        _partitions: Vec<i32>,
     ) {
     }
 

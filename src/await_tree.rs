@@ -1,8 +1,8 @@
 use await_tree::Registry;
 use lazy_static::lazy_static;
-use log::info;
+
 use std::sync::Arc;
-use std::time::Duration;
+
 use tokio::sync::Mutex;
 
 lazy_static! {

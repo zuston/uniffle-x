@@ -10,9 +10,8 @@ use crate::proto::uniffle::shuffle_server_server::ShuffleServerServer;
 use crate::proto::uniffle::{ShuffleServerHeartBeatRequest, ShuffleServerId};
 use crate::util::{gen_datanode_uid, get_local_ip};
 use anyhow::Result;
-use futures::StreamExt;
 use log::info;
-use std::borrow::BorrowMut;
+
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::time::Duration;
 use tonic::transport::{Channel, Server};
@@ -183,12 +182,6 @@ async fn main() -> Result<()> {
 #[cfg(test)]
 mod test {
     use crate::get_local_ip;
-    use crate::proto::uniffle::shuffle_server_client::ShuffleServerClient;
-    use anyhow::Result;
-    use std::borrow::BorrowMut;
-    use std::cell::RefCell;
-    use std::rc::Rc;
-    use tokio_stream::StreamExt;
 
     #[test]
     fn get_local_ip_test() {

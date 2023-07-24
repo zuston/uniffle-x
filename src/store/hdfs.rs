@@ -4,31 +4,29 @@ use crate::app::{
 };
 use crate::config::HdfsStoreConfig;
 use crate::error::DatanodeError;
-use crate::error::DatanodeError::Other;
-use crate::metric::{TOTAL_HDFS_USED, TOTAL_MEMORY_SPILL_TO_HDFS};
+
+use crate::metric::TOTAL_HDFS_USED;
 use crate::store::{Persistent, RequireBufferResponse, ResponseData, ResponseDataIndex, Store};
-use anyhow::{anyhow, Error, Result};
-use async_channel::Sender;
+use anyhow::Result;
+
 use async_trait::async_trait;
 use await_tree::InstrumentAwait;
 use bytes::{BufMut, Bytes, BytesMut};
 use dashmap::DashMap;
-use futures::future::select;
+
 use futures::AsyncWriteExt;
 use hdrs::{Client, ClientBuilder};
 use log::{error, info};
-use std::collections::HashMap;
-use std::hash::Hash;
+
 use std::path::Path;
-use std::sync::atomic::AtomicI64;
+
 use std::sync::Arc;
 use std::{env, io};
-use tokio::sync::{AcquireError, Mutex, Semaphore};
-use toml::map::Entry;
+use tokio::sync::{Mutex, Semaphore};
+
 use tracing::debug;
-use tracing_subscriber::registry::Data;
-use url::form_urlencoded::parse;
-use url::{ParseError, Url};
+
+use url::Url;
 
 struct PartitionCachedMeta {
     is_file_created: bool,
@@ -140,7 +138,7 @@ impl Store for HdfsStore {
             .entry(data_file_path.clone())
             .or_insert_with(|| Arc::new(Mutex::new(())))
             .clone();
-        let lock_guard = lock_cloned
+        let _lock_guard = lock_cloned
             .lock()
             .instrument_await(format!(
                 "hdfs partition file lock. path: {}",
@@ -213,20 +211,20 @@ impl Store for HdfsStore {
         Ok(())
     }
 
-    async fn get(&self, ctx: ReadingViewContext) -> Result<ResponseData, DatanodeError> {
+    async fn get(&self, _ctx: ReadingViewContext) -> Result<ResponseData, DatanodeError> {
         todo!()
     }
 
     async fn get_index(
         &self,
-        ctx: ReadingIndexViewContext,
+        _ctx: ReadingIndexViewContext,
     ) -> Result<ResponseDataIndex, DatanodeError> {
         todo!()
     }
 
     async fn require_buffer(
         &self,
-        ctx: RequireBufferContext,
+        _ctx: RequireBufferContext,
     ) -> Result<RequireBufferResponse, DatanodeError> {
         todo!()
     }

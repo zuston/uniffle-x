@@ -1,15 +1,14 @@
 use crate::error::DatanodeError;
 use crate::http::Handler;
 use log::error;
-use poem::endpoint::{make, make_sync};
-use poem::{get, handler, Request, RouteMethod};
+
+use poem::{handler, Request, RouteMethod};
 use pprof::protos::Message;
 use pprof::ProfilerGuard;
 use serde::{Deserialize, Serialize};
 use std::num::NonZeroI32;
 use std::time::Duration;
 use tokio::time::sleep as delay_for;
-use tracing_subscriber::fmt::format;
 
 #[derive(Deserialize, Serialize)]
 #[serde(default)]
