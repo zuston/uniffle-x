@@ -5,28 +5,21 @@ use crate::app::{
 };
 use crate::config::LocalfileStoreConfig;
 use crate::error::DatanodeError;
-use crate::metric::{
-    GAUGE_MEMORY_SPILL_TO_LOCALFILE, TOTAL_LOCALFILE_USED, TOTAL_MEMORY_SPILL_TO_LOCALFILE,
-};
-use crate::store::ResponseDataIndex::local;
+use crate::metric::TOTAL_LOCALFILE_USED;
+use crate::store::ResponseDataIndex::Local;
 use crate::store::{
     LocalDataIndex, PartitionedLocalData, Persistent, RequireBufferResponse, ResponseData,
     ResponseDataIndex, Store,
 };
-use crate::util::get_crc;
+
 use anyhow::Result;
 use async_trait::async_trait;
 use await_tree::InstrumentAwait;
 use bytes::{BufMut, Bytes, BytesMut};
 use dashmap::DashMap;
-use futures::future::err;
-use log::Level::Error;
+
 use log::{debug, error, info, warn};
-use std::borrow::Borrow;
-use std::cell::Ref;
-use std::collections::HashMap;
-use std::fs::read;
-use std::hash::Hash;
+
 use std::io::SeekFrom;
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -35,8 +28,6 @@ use std::time::Duration;
 use tokio::fs::OpenOptions;
 use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt};
 use tokio::sync::{RwLock, Semaphore};
-use tonic::codegen::ok;
-use tracing_subscriber::registry::Data;
 
 fn create_directory_if_not_exists(dir_path: &str) {
     if !std::fs::metadata(dir_path).is_ok() {
@@ -163,7 +154,7 @@ impl LocalFileStore {
             .or_insert_with(|| DashMap::new());
         let local_disk = partition_entry
             .entry(partition_id)
-            .or_insert({ self.select_disk(uid_ref).await? })
+            .or_insert(self.select_disk(uid_ref).await?)
             .clone();
 
         Ok(local_disk)
@@ -215,13 +206,13 @@ impl Store for LocalFileStore {
         todo!()
     }
 
-    async fn insert(&self, mut ctx: WritingViewContext) -> Result<(), DatanodeError> {
+    async fn insert(&self, ctx: WritingViewContext) -> Result<(), DatanodeError> {
         if ctx.data_blocks.len() <= 0 {
             return Ok(());
         }
 
         let uid = ctx.uid;
-        let pid = uid.partition_id;
+        let _pid = uid.partition_id;
         let (data_file_path, index_file_path) =
             LocalFileStore::gen_relative_path_for_partition(&uid);
         let local_disk = self.get_or_create_owned_disk(uid.clone()).await?;
@@ -237,7 +228,7 @@ impl Store for LocalFileStore {
             .entry(data_file_path.clone())
             .or_insert_with(|| Arc::new(RwLock::new(())))
             .clone();
-        let lock_guard = lock_cloned
+        let _lock_guard = lock_cloned
             .write()
             .instrument_await(format!(
                 "localfile partition file lock. path: {}",
@@ -301,7 +292,7 @@ impl Store for LocalFileStore {
 
         if len == 0 {
             warn!("There is no data in localfile for [{:?}]", &uid);
-            return Ok(ResponseData::local(PartitionedLocalData {
+            return Ok(ResponseData::Local(PartitionedLocalData {
                 data: Default::default(),
             }));
         }
@@ -312,7 +303,7 @@ impl Store for LocalFileStore {
             .entry(data_file_path.clone())
             .or_insert_with(|| Arc::new(RwLock::new(())))
             .clone();
-        let lock_guard = lock_cloned.read().await;
+        let _lock_guard = lock_cloned.read().await;
 
         let local_disk: Option<Arc<LocalDisk>> = self.get_owned_disk(uid.clone());
 
@@ -321,7 +312,7 @@ impl Store for LocalFileStore {
                 "This should not happen of local disk not found for [{:?}]",
                 &uid
             );
-            return Ok(ResponseData::local(PartitionedLocalData {
+            return Ok(ResponseData::Local(PartitionedLocalData {
                 data: Default::default(),
             }));
         }
@@ -335,7 +326,7 @@ impl Store for LocalFileStore {
         }
 
         let data = local_disk.read(data_file_path, offset, Some(len)).await?;
-        Ok(ResponseData::local(PartitionedLocalData { data }))
+        Ok(ResponseData::Local(PartitionedLocalData { data }))
     }
 
     async fn get_index(
@@ -351,7 +342,7 @@ impl Store for LocalFileStore {
             .entry(data_file_path.clone())
             .or_insert_with(|| Arc::new(RwLock::new(())))
             .clone();
-        let lock_guard = lock_cloned.read().await;
+        let _lock_guard = lock_cloned.read().await;
 
         let local_disk: Option<Arc<LocalDisk>> = self.get_owned_disk(uid.clone());
 
@@ -360,7 +351,7 @@ impl Store for LocalFileStore {
                 "This should not happen of local disk not found for [{:?}]",
                 &uid
             );
-            return Ok(local(LocalDataIndex {
+            return Ok(Local(LocalDataIndex {
                 index_data: Default::default(),
                 data_file_len: 0,
             }));
@@ -376,7 +367,7 @@ impl Store for LocalFileStore {
 
         let index_data_result = local_disk.read(index_file_path, 0, None).await?;
         let len = local_disk.get_file_len(data_file_path).await?;
-        Ok(local(LocalDataIndex {
+        Ok(Local(LocalDataIndex {
             index_data: index_data_result,
             data_file_len: len,
         }))
@@ -384,7 +375,7 @@ impl Store for LocalFileStore {
 
     async fn require_buffer(
         &self,
-        ctx: RequireBufferContext,
+        _ctx: RequireBufferContext,
     ) -> Result<RequireBufferResponse, DatanodeError> {
         todo!()
     }
@@ -575,7 +566,7 @@ impl LocalDisk {
     }
 
     async fn write(&self, data: Bytes, relative_file_path: String) -> Result<()> {
-        let concurrency_guarder = self.concurrency_limiter.acquire().await?;
+        let _concurrency_guarder = self.concurrency_limiter.acquire().await?;
         let absolute_path = self.append_path(relative_file_path.clone());
         let path = Path::new(&absolute_path);
 
@@ -686,21 +677,20 @@ mod test {
         WritingViewContext,
     };
     use crate::store::localfile::{LocalDisk, LocalDiskConfig, LocalFileStore};
-    use crate::store::ResponseDataIndex::local;
+
     use crate::store::{PartitionedDataBlock, ResponseData, ResponseDataIndex, Store};
     use bytes::{Buf, Bytes, BytesMut};
     use log::info;
-    use std::fs::read;
+
     use std::io::Read;
     use std::time::Duration;
-    use tracing_subscriber::fmt::{format, time};
 
     #[tokio::test]
     async fn purge_test() -> anyhow::Result<()> {
         let temp_dir = tempdir::TempDir::new("test_local_store").unwrap();
         let temp_path = temp_dir.path().to_str().unwrap().to_string();
         println!("init local file path: {}", &temp_path);
-        let mut local_store = LocalFileStore::new(vec![temp_path.clone()]);
+        let local_store = LocalFileStore::new(vec![temp_path.clone()]);
 
         let app_id = "purge_test-app-id".to_string();
         let uid = PartitionedUId {
@@ -711,7 +701,7 @@ mod test {
 
         let data = b"hello world!hello china!";
         let size = data.len();
-        let writingCtx = WritingViewContext {
+        let writing_ctx = WritingViewContext {
             uid: uid.clone(),
             data_blocks: vec![
                 PartitionedDataBlock {
@@ -733,7 +723,7 @@ mod test {
             ],
         };
 
-        let insert_result = local_store.insert(writingCtx).await;
+        let insert_result = local_store.insert(writing_ctx).await;
         if insert_result.is_err() {
             println!("{:?}", insert_result.err());
             panic!()
@@ -770,7 +760,7 @@ mod test {
 
         let data = b"hello world!hello china!";
         let size = data.len();
-        let writingCtx = WritingViewContext {
+        let writing_ctx = WritingViewContext {
             uid: uid.clone(),
             data_blocks: vec![
                 PartitionedDataBlock {
@@ -792,7 +782,7 @@ mod test {
             ],
         };
 
-        let insert_result = local_store.insert(writingCtx).await;
+        let insert_result = local_store.insert(writing_ctx).await;
         if insert_result.is_err() {
             println!("{:?}", insert_result.err());
             panic!()
@@ -804,18 +794,18 @@ mod test {
             size: i64,
             expected: &[u8],
         ) {
-            let readingCtx = ReadingViewContext {
+            let reading_ctx = ReadingViewContext {
                 uid,
                 reading_options: ReadingOptions::FILE_OFFSET_AND_LEN(0, size as i64),
             };
 
-            let read_result = local_store.get(readingCtx).await;
+            let read_result = local_store.get(reading_ctx).await;
             if read_result.is_err() {
                 panic!()
             }
 
             match read_result.unwrap() {
-                ResponseData::local(partitioned_data) => {
+                ResponseData::Local(partitioned_data) => {
                     assert_eq!(expected, partitioned_data.data.as_ref());
                 }
                 _ => panic!(),
@@ -838,16 +828,16 @@ mod test {
         .await;
 
         // case3: get the index data
-        let readingIndexViewCtx = ReadingIndexViewContext {
+        let reading_index_view_ctx = ReadingIndexViewContext {
             partition_id: uid.clone(),
         };
-        let result = local_store.get_index(readingIndexViewCtx).await;
+        let result = local_store.get_index(reading_index_view_ctx).await;
         if result.is_err() {
             panic!()
         }
 
         match result.unwrap() {
-            ResponseDataIndex::local(data) => {
+            ResponseDataIndex::Local(data) => {
                 let mut index = data.index_data;
                 let offset_1 = index.get_i64();
                 assert_eq!(0, offset_1);
@@ -864,7 +854,6 @@ mod test {
                 assert_eq!(size as i64, offset_2);
                 assert_eq!(size as i32, index.get_i32());
             }
-            _ => panic!(),
         }
 
         temp_dir.close().unwrap();
@@ -877,7 +866,7 @@ mod test {
 
         println!("init the path: {}", &temp_path);
 
-        let mut local_disk = LocalDisk::new(temp_path.clone(), LocalDiskConfig::default());
+        let local_disk = LocalDisk::new(temp_path.clone(), LocalDiskConfig::default());
 
         let data = b"hello!";
         local_disk
@@ -909,8 +898,7 @@ mod test {
         let temp_dir = tempdir::TempDir::new("test_directory").unwrap();
         let temp_path = temp_dir.path().to_str().unwrap().to_string();
 
-        let mut local_disk =
-            LocalDisk::new(temp_path.clone(), LocalDiskConfig::create_mocked_config());
+        let local_disk = LocalDisk::new(temp_path.clone(), LocalDiskConfig::create_mocked_config());
 
         tokio::time::sleep(Duration::from_secs(12)).await;
         assert_eq!(true, local_disk.is_healthy().unwrap());
@@ -922,7 +910,7 @@ mod test {
         let temp_dir = tempdir::TempDir::new("test_directory").unwrap();
         let temp_path = temp_dir.path().to_str().unwrap().to_string();
 
-        let mut local_disk = LocalDisk::new(temp_path.clone(), LocalDiskConfig::default());
+        let local_disk = LocalDisk::new(temp_path.clone(), LocalDiskConfig::default());
 
         let data = b"Hello, World!";
 

@@ -1,46 +1,44 @@
 use crate::config::Config;
 use crate::error::DatanodeError;
 use crate::metric::{
-    GAUGE_APP_NUMBER, GAUGE_PARTITION_NUMBER, TOTAL_APP_NUMBER,
-    TOTAL_HUGE_PARTITION_REQUIRE_BUFFER_FAILED, TOTAL_RECEIVED_DATA, TOTAL_REQUIRE_BUFFER_FAILED,
+    GAUGE_APP_NUMBER, TOTAL_APP_NUMBER, TOTAL_HUGE_PARTITION_REQUIRE_BUFFER_FAILED,
+    TOTAL_RECEIVED_DATA, TOTAL_REQUIRE_BUFFER_FAILED,
 };
-use crate::proto::uniffle::ShuffleData;
+
 use crate::readable_size::ReadableSize;
-use crate::store;
+
 use crate::store::hybrid::HybridStore;
-use crate::store::memory::{MemorySnapshot, MemoryStore};
+use crate::store::memory::MemorySnapshot;
 use crate::store::{
-    PartitionedData, PartitionedDataBlock, RequireBufferResponse, ResponseData, ResponseDataIndex,
-    Store, StoreProvider,
+    PartitionedDataBlock, RequireBufferResponse, ResponseData, ResponseDataIndex, Store,
+    StoreProvider,
 };
 use crate::util::current_timestamp_sec;
-use anyhow::{anyhow, Result};
-use bytes::{BufMut, Bytes, BytesMut};
+use anyhow::Result;
+use bytes::Bytes;
 use croaring::treemap::JvmSerializer;
 use croaring::Treemap;
-use dashmap::mapref::one::{Ref, RefMut};
+
 use dashmap::DashMap;
 use log::{debug, error, info};
-use std::borrow::BorrowMut;
+
 use std::collections::hash_map::DefaultHasher;
 use std::collections::HashSet;
-use std::fs::read;
+
 use std::hash::{Hash, Hasher};
-use std::io::Read;
-use std::ops::Deref;
+
 use std::str::FromStr;
-use std::sync::atomic::Ordering::AcqRel;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{mpsc, Arc, Mutex};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
-use tokio::runtime::Runtime;
+
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
+use std::time::Duration;
+
 use tokio::sync::RwLock;
-use tokio_rustls::rustls::internal::msgs::enums::AlertDescription::InappropriateFallback;
-use tonic::codegen::ok;
 
 #[derive(Debug, Clone)]
 enum DataDistribution {
     NORMAL,
+    #[allow(non_camel_case_types)]
     LOCAL_ORDER,
 }
 
@@ -161,7 +159,8 @@ impl App {
     pub async fn insert(&self, ctx: WritingViewContext) -> Result<(), DatanodeError> {
         let len: i32 = ctx.data_blocks.iter().map(|block| block.length).sum();
         self.get_underlying_partition_bitmap(ctx.uid.clone())
-            .incr_data_size(len);
+            .incr_data_size(len)
+            .await?;
         TOTAL_RECEIVED_DATA.inc_by(len as u64);
 
         self.store.insert(ctx).await
@@ -226,7 +225,7 @@ impl App {
             .bitmap_of_blocks
             .entry(shuffle_id)
             .or_insert_with(|| DashMap::new());
-        let mut partitioned_meta = shuffle_entry
+        let partitioned_meta = shuffle_entry
             .entry(partition_id)
             .or_insert_with(|| PartitionedMeta::new());
 
@@ -290,13 +289,16 @@ pub struct RequireBufferContext {
 }
 
 pub enum ReadingOptions {
+    #[allow(non_camel_case_types)]
     MEMORY_LAST_BLOCK_ID_AND_MAX_SIZE(i64, i64),
+    #[allow(non_camel_case_types)]
     FILE_OFFSET_AND_LEN(i64, i64),
 }
 
 // ==========================================================
 
 #[derive(Debug, Clone)]
+#[allow(non_camel_case_types)]
 pub enum PurgeEvent {
     // app_id
     HEART_BEAT_TIMEOUT(String),
@@ -347,7 +349,7 @@ impl AppManager {
                 // task1: find out heartbeat timeout apps
                 tokio::time::sleep(Duration::from_secs(120)).await;
 
-                let current_timestamp = current_timestamp_sec();
+                let _current_timestamp = current_timestamp_sec();
                 for item in app_manager_ref_cloned.apps.iter() {
                     let (key, app) = item.pair();
                     let last_time = app.get_latest_heartbeat_time();
@@ -391,7 +393,7 @@ impl AppManager {
                         );
                         app_manager_cloned.purge_app_data(app_id).await
                     }
-                    PurgeEvent::APP_PARTIAL_SHUFFLES_PURGE(app_id, shuffle_ids) => {
+                    PurgeEvent::APP_PARTIAL_SHUFFLES_PURGE(_app_id, _shuffle_ids) => {
                         info!("Partial data purge is not supported currently");
                         Ok(())
                     }
@@ -442,7 +444,7 @@ impl AppManager {
             app_id.clone(),
             shuffle_id
         );
-        let mut appRef = self.apps.entry(app_id.clone()).or_insert_with(|| {
+        let app_ref = self.apps.entry(app_id.clone()).or_insert_with(|| {
             TOTAL_APP_NUMBER.inc();
             GAUGE_APP_NUMBER.inc();
 
@@ -475,7 +477,7 @@ impl AppManager {
                 huge_partition_max_available_size,
             ))
         });
-        appRef.register_shuffle(shuffle_id)
+        app_ref.register_shuffle(shuffle_id)
     }
 
     pub async fn unregister(&self, app_id: String, shuffle_ids: Option<Vec<i32>>) -> Result<()> {
@@ -522,16 +524,10 @@ mod test {
         ReportBlocksContext, WritingViewContext,
     };
     use crate::config::{Config, HybridStoreConfig, LocalfileStoreConfig, MemoryStoreConfig};
-    use crate::store::hybrid::HybridStore;
-    use crate::store::{PartitionedDataBlock, ResponseData};
+
+    use crate::store::PartitionedDataBlock;
     use croaring::treemap::JvmSerializer;
     use croaring::Treemap;
-    use dashmap::DashMap;
-    use std::collections::HashMap;
-    use std::ops::Deref;
-    use std::sync::Arc;
-    use std::thread::sleep;
-    use std::time::{Duration, Instant};
 
     #[test]
     fn test_uid_hash() {
@@ -558,11 +554,11 @@ mod test {
     async fn app_put_get_purge_test() {
         let app_id = "app_put_get_purge_test-----id";
 
-        let appManagerRef = AppManager::get_ref(mock_config()).clone();
-        appManagerRef.register(app_id.clone().into(), 1).unwrap();
+        let app_manager_ref = AppManager::get_ref(mock_config()).clone();
+        app_manager_ref.register(app_id.clone().into(), 1).unwrap();
 
-        if let Some(mut app) = appManagerRef.get_app("app_id".into()) {
-            let writingCtx = WritingViewContext {
+        if let Some(app) = app_manager_ref.get_app("app_id".into()) {
+            let writing_ctx = WritingViewContext {
                 uid: PartitionedUId {
                     app_id: app_id.clone().into(),
                     shuffle_id: 1,
@@ -587,12 +583,12 @@ mod test {
                     },
                 ],
             };
-            let result = app.insert(writingCtx);
+            let result = app.insert(writing_ctx);
             if result.await.is_err() {
                 panic!()
             }
 
-            let readingCtx = ReadingViewContext {
+            let _reading_ctx = ReadingViewContext {
                 uid: Default::default(),
                 reading_options: ReadingOptions::MEMORY_LAST_BLOCK_ID_AND_MAX_SIZE(-1, 1000000),
             };
@@ -613,9 +609,9 @@ mod test {
 
     #[tokio::test]
     async fn app_manager_test() {
-        let appManagerRef = AppManager::get_ref(mock_config()).clone();
-        appManagerRef.register("app_id".into(), 1).unwrap();
-        if let Some(app) = appManagerRef.get_app("app_id".into()) {
+        let app_manager_ref = AppManager::get_ref(mock_config()).clone();
+        app_manager_ref.register("app_id".into(), 1).unwrap();
+        if let Some(app) = app_manager_ref.get_app("app_id".into()) {
             assert_eq!("app_id", app.app_id);
         }
     }
@@ -624,10 +620,10 @@ mod test {
     async fn test_get_or_put_block_ids() {
         let app_id = "test_get_or_put_block_ids-----id".to_string();
 
-        let appManagerRef = AppManager::get_ref(mock_config()).clone();
-        appManagerRef.register(app_id.clone().into(), 1).unwrap();
+        let app_manager_ref = AppManager::get_ref(mock_config()).clone();
+        app_manager_ref.register(app_id.clone().into(), 1).unwrap();
 
-        let app = appManagerRef.get_app(app_id.as_ref()).unwrap();
+        let app = app_manager_ref.get_app(app_id.as_ref()).unwrap();
         app.report_block_ids(ReportBlocksContext {
             uid: PartitionedUId {
                 app_id: app_id.clone(),

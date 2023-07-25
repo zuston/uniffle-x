@@ -1,14 +1,13 @@
-use crate::app::PurgeEvent;
 use crate::error::DatanodeError::Other;
 use anyhow::Error;
-use crossbeam_channel::SendError;
+
 use log::error;
 use poem::error::ParseQueryError;
-use std::fmt::{Display, Formatter, Write};
 use thiserror::Error;
 use tokio::sync::AcquireError;
 
 #[derive(Error, Debug)]
+#[allow(non_camel_case_types)]
 pub enum DatanodeError {
     #[error("There is no available disks in local file store")]
     NO_AVAILABLE_LOCAL_DISK,
@@ -49,8 +48,8 @@ impl From<ParseQueryError> for DatanodeError {
 
 #[cfg(test)]
 mod tests {
-    use crate::error::DatanodeError;
-    use anyhow::{anyhow, bail, Result};
+
+    use anyhow::Result;
 
     #[test]
     pub fn error_test() -> Result<()> {

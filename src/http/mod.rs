@@ -9,7 +9,6 @@ use crate::http::metrics::MetricsHTTPHandler;
 use crate::http::pprof::PProfHandler;
 use lazy_static::lazy_static;
 use poem::RouteMethod;
-use std::sync::{Arc, Mutex};
 
 lazy_static! {
     pub static ref HTTP_SERVICE: Box<PoemHTTPServer> = new_server();

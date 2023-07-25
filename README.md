@@ -63,6 +63,10 @@ memory_spill_low_watermark = 0.4
 
 `cargo build --release`
 
+Uniffle-x currently treats all compiler warnings as error, with some dead-code warning excluded. When you are developing
+and really want to ignore the warnings for now, you can use `ccargo --config 'build.rustflags=["-W", "warnings"]' build`
+to restore the default behavior. However, before submit your pr, you should fix all the warnings.
+
 
 ## Config
 

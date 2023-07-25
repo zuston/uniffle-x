@@ -2,7 +2,6 @@ use crate::app::{
     AppManagerRef, GetBlocksContext, PartitionedUId, ReadingIndexViewContext, ReadingOptions,
     ReadingViewContext, ReportBlocksContext, RequireBufferContext, WritingViewContext,
 };
-use crate::proto::uniffle::coordinator_server_server::CoordinatorServer;
 use crate::proto::uniffle::shuffle_server_server::ShuffleServer;
 use crate::proto::uniffle::{
     AppHeartBeatRequest, AppHeartBeatResponse, FinishShuffleRequest, FinishShuffleResponse,
@@ -15,14 +14,14 @@ use crate::proto::uniffle::{
     ShuffleRegisterRequest, ShuffleRegisterResponse, ShuffleUnregisterRequest,
     ShuffleUnregisterResponse,
 };
-use crate::store::{PartitionedData, PartitionedDataBlock, ResponseData, ResponseDataIndex};
+use crate::store::{PartitionedData, PartitionedDataBlock, ResponseDataIndex};
 use bytes::{BufMut, BytesMut};
-use futures::future::err;
+
 use log::{debug, error, info, warn};
-use std::ops::Deref;
-use toml::Value::String;
+
 use tonic::{Request, Response, Status};
 
+#[allow(non_camel_case_types)]
 enum StatusCode {
     SUCCESS = 0,
     DOUBLE_REGISTER = 1,
@@ -45,10 +44,8 @@ pub struct DefaultShuffleServer {
 }
 
 impl DefaultShuffleServer {
-    pub fn from(appManagerRef: AppManagerRef) -> DefaultShuffleServer {
-        DefaultShuffleServer {
-            app_manager_ref: appManagerRef,
-        }
+    pub fn from(app_manager_ref: AppManagerRef) -> DefaultShuffleServer {
+        DefaultShuffleServer { app_manager_ref }
     }
 }
 
@@ -72,7 +69,7 @@ impl ShuffleServer for DefaultShuffleServer {
 
     async fn unregister_shuffle(
         &self,
-        request: Request<ShuffleUnregisterRequest>,
+        _request: Request<ShuffleUnregisterRequest>,
     ) -> Result<Response<ShuffleUnregisterResponse>, Status> {
         // todo: implement shuffle level deletion
         info!("Accepted unregister shuffle info....");
@@ -99,9 +96,9 @@ impl ShuffleServer for DefaultShuffleServer {
             }));
         }
 
-        let mut app = app_option.unwrap();
+        let app = app_option.unwrap();
 
-        let blocks: Vec<PartitionedDataBlock> = vec![];
+        let _blocks: Vec<PartitionedDataBlock> = vec![];
         for shuffle_data in req.shuffle_data {
             let data: PartitionedData = shuffle_data.into();
             let partitioned_blocks = data.blocks;
@@ -109,7 +106,7 @@ impl ShuffleServer for DefaultShuffleServer {
                 uid: PartitionedUId {
                     app_id: app_id.clone(),
                     shuffle_id,
-                    partition_id: data.partitionId,
+                    partition_id: data.partition_id,
                 },
                 data_blocks: partitioned_blocks,
             };
@@ -143,8 +140,8 @@ impl ShuffleServer for DefaultShuffleServer {
         let app_id = req.app_id;
         let shuffle_id: i32 = req.shuffle_id;
         let partition_id = req.partition_id;
-        let partition_num = req.partition_num;
-        let partition_per_range = req.partition_num_per_range;
+        let _partition_num = req.partition_num;
+        let _partition_per_range = req.partition_num_per_range;
 
         let app_option = self.app_manager_ref.get_app(&app_id);
 
@@ -180,7 +177,7 @@ impl ShuffleServer for DefaultShuffleServer {
         }
 
         match data_index_wrapper.unwrap() {
-            ResponseDataIndex::local(data_index) => {
+            ResponseDataIndex::Local(data_index) => {
                 Ok(Response::new(GetLocalShuffleIndexResponse {
                     index_data: data_index.index_data,
                     status: StatusCode::SUCCESS.into(),
@@ -188,12 +185,6 @@ impl ShuffleServer for DefaultShuffleServer {
                     data_file_len: data_index.data_file_len,
                 }))
             }
-            _ => Ok(Response::new(GetLocalShuffleIndexResponse {
-                index_data: Default::default(),
-                status: StatusCode::INTERNAL_ERROR.into(),
-                ret_msg: "index file not found".to_string(),
-                data_file_len: 0,
-            })),
         }
     }
 
@@ -311,7 +302,7 @@ impl ShuffleServer for DefaultShuffleServer {
 
     async fn commit_shuffle_task(
         &self,
-        request: Request<ShuffleCommitRequest>,
+        _request: Request<ShuffleCommitRequest>,
     ) -> Result<Response<ShuffleCommitResponse>, Status> {
         warn!("It has not been supported of committing shuffle data");
         Ok(Response::new(ShuffleCommitResponse {
@@ -465,7 +456,7 @@ impl ShuffleServer for DefaultShuffleServer {
 
     async fn finish_shuffle(
         &self,
-        request: Request<FinishShuffleRequest>,
+        _request: Request<FinishShuffleRequest>,
     ) -> Result<Response<FinishShuffleResponse>, Status> {
         info!("Accepted unregister shuffle info....");
         Ok(Response::new(FinishShuffleResponse {
@@ -504,9 +495,9 @@ impl ShuffleServer for DefaultShuffleServer {
             .await;
 
         let res = match app {
-            Ok(requiredBufferRes) => (
+            Ok(required_buffer_res) => (
                 StatusCode::SUCCESS,
-                requiredBufferRes.ticket_id,
+                required_buffer_res.ticket_id,
                 "".to_string(),
             ),
             Err(err) => (StatusCode::NO_BUFFER, -1i64, format!("{:?}", err)),

@@ -3,42 +3,24 @@ pub mod hybrid;
 pub mod localfile;
 pub mod memory;
 
-use crate::app::ReadingOptions::MEMORY_LAST_BLOCK_ID_AND_MAX_SIZE;
 use crate::app::{
-    PartitionedUId, ReadingIndexViewContext, ReadingViewContext, RequireBufferContext,
-    WritingViewContext,
+    ReadingIndexViewContext, ReadingViewContext, RequireBufferContext, WritingViewContext,
 };
 use crate::config::Config;
 use crate::error::DatanodeError;
-use crate::proto::uniffle::{ShuffleBlock, ShuffleData, ShuffleDataBlockSegment};
+use crate::proto::uniffle::{ShuffleData, ShuffleDataBlockSegment};
 use crate::store::hybrid::HybridStore;
-use crate::store::memory::MemoryStore;
-use crate::store::ResponseDataIndex::local;
+
 use crate::util::current_timestamp_sec;
-use anyhow::{anyhow, Result};
+use anyhow::Result;
 use async_trait::async_trait;
-use bytes::{BufMut, Bytes, BytesMut};
-use dashmap::mapref::multiple::RefMulti;
-use dashmap::DashMap;
-use std::borrow::BorrowMut;
-use std::cell::{Ref, RefCell, RefMut};
-use std::collections::HashMap;
-use std::fmt::format;
-use std::hash::Hash;
-use std::io::SeekFrom;
-use std::path::Path;
-use std::sync::atomic::{AtomicI64, Ordering};
-use std::sync::{Arc, Mutex, RwLock};
-use std::thread::park;
-use std::time::Duration;
-use tokio::fs::{File, OpenOptions};
-use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt};
-use tokio::{fs, select};
-use tonic::codegen::ok;
+use bytes::Bytes;
+
+use std::sync::Arc;
 
 #[derive(Debug)]
 pub struct PartitionedData {
-    pub partitionId: i32,
+    pub partition_id: i32,
     pub blocks: Vec<PartitionedDataBlock>,
 }
 
@@ -53,9 +35,9 @@ pub struct PartitionedDataBlock {
 }
 
 impl From<ShuffleData> for PartitionedData {
-    fn from(shuffleData: ShuffleData) -> PartitionedData {
+    fn from(shuffle_data: ShuffleData) -> PartitionedData {
         let mut blocks = vec![];
-        for data in shuffleData.block {
+        for data in shuffle_data.block {
             let block = PartitionedDataBlock {
                 block_id: data.block_id,
                 length: data.length,
@@ -67,14 +49,14 @@ impl From<ShuffleData> for PartitionedData {
             blocks.push(block);
         }
         PartitionedData {
-            partitionId: shuffleData.partition_id,
+            partition_id: shuffle_data.partition_id,
             blocks,
         }
     }
 }
 
 pub enum ResponseDataIndex {
-    local(LocalDataIndex),
+    Local(LocalDataIndex),
 }
 
 pub struct LocalDataIndex {
@@ -83,21 +65,21 @@ pub struct LocalDataIndex {
 }
 
 pub enum ResponseData {
-    local(PartitionedLocalData),
-    mem(PartitionedMemoryData),
+    Local(PartitionedLocalData),
+    Mem(PartitionedMemoryData),
 }
 
 impl ResponseData {
     pub fn from_local(&self) -> Bytes {
         match self {
-            ResponseData::local(data) => data.data.clone(),
+            ResponseData::Local(data) => data.data.clone(),
             _ => Default::default(),
         }
     }
 
     pub fn from_memory(&self) -> PartitionedMemoryData {
         match self {
-            ResponseData::mem(data) => data.clone(),
+            ResponseData::Mem(data) => data.clone(),
             _ => Default::default(),
         }
     }

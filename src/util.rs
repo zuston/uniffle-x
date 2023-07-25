@@ -1,11 +1,8 @@
 use bytes::Bytes;
 use crc32fast::Hasher;
-use std::cell::RefCell;
-use std::cmp::max;
-use std::collections::hash_map::DefaultHasher;
-use std::hash::Hash;
+
 use std::net::IpAddr;
-use std::sync::{Arc, Mutex};
+use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 pub fn get_local_ip() -> Result<IpAddr, std::io::Error> {
@@ -85,9 +82,8 @@ impl Drop for Ticket<'_> {
 
 #[cfg(test)]
 mod test {
-    use crate::util::{current_timestamp_sec, get_crc, ConcurrencyLimiter, Ticket};
+    use crate::util::{current_timestamp_sec, get_crc, ConcurrencyLimiter};
     use bytes::Bytes;
-    use std::sync::Arc;
 
     #[test]
     fn ticket_test() {

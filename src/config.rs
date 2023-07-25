@@ -1,4 +1,3 @@
-use crate::store::hybrid::HybridStore;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::Path;
@@ -138,6 +137,7 @@ pub enum RotationConfig {
 // =========================================================
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Copy)]
+#[allow(non_camel_case_types)]
 pub enum StorageType {
     MEMORY = 1,
     LOCALFILE = 2,

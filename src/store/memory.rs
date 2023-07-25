@@ -15,14 +15,13 @@ use crate::store::{
 };
 use crate::*;
 use async_trait::async_trait;
-use bytes::{BufMut, BytesMut};
+use bytes::BytesMut;
 use dashmap::DashMap;
-use std::cell::Ref;
+
 use std::collections::{BTreeMap, HashMap};
-use std::hash::Hash;
-use std::slice::Iter;
+
 use std::str::FromStr;
-use std::sync::atomic::{AtomicI64, Ordering};
+
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
@@ -223,7 +222,7 @@ impl Store for MemoryStore {
     async fn get(&self, ctx: ReadingViewContext) -> Result<ResponseData, DatanodeError> {
         let uid = ctx.uid;
         let buffer = self.get_or_create_underlying_staging_buffer(uid);
-        let mut buffer = buffer.lock().await;
+        let buffer = buffer.lock().await;
 
         let options = ctx.reading_options;
         let (fetched_blocks, length) = match options {
@@ -320,7 +319,7 @@ impl Store for MemoryStore {
             offset += block.length as i64;
         }
 
-        Ok(ResponseData::mem(PartitionedMemoryData {
+        Ok(ResponseData::Mem(PartitionedMemoryData {
             shuffle_data_block_segments: segments,
             data: bytes_holder.freeze(),
         }))
@@ -328,7 +327,7 @@ impl Store for MemoryStore {
 
     async fn get_index(
         &self,
-        ctx: ReadingIndexViewContext,
+        _ctx: ReadingIndexViewContext,
     ) -> Result<ResponseDataIndex, DatanodeError> {
         panic!("It should not be invoked.")
     }
@@ -506,7 +505,7 @@ impl MemoryBudget {
     }
 
     pub async fn snapshot(&self) -> MemorySnapshot {
-        let mut inner = self.inner.lock().await;
+        let inner = self.inner.lock().await;
         (inner.capacity, inner.allocated, inner.used).into()
     }
 
@@ -567,29 +566,25 @@ mod test {
         PartitionedUId, ReadingOptions, ReadingViewContext, RequireBufferContext,
         WritingViewContext,
     };
-    use crate::config::HybridStoreConfig;
+
     use crate::store::memory::MemoryStore;
-    use crate::store::ResponseData::mem;
-    use crate::store::ResponseDataIndex::local;
+    use crate::store::ResponseData::Mem;
+
     use crate::store::{PartitionedDataBlock, PartitionedMemoryData, ResponseData, Store};
-    use async_trait::async_trait;
-    use bytes::{Bytes, BytesMut};
+
+    use bytes::BytesMut;
     use core::panic;
-    use dashmap::DashMap;
-    use std::borrow::Borrow;
-    use std::collections::BTreeMap;
-    use std::io::Read;
 
     #[tokio::test]
     async fn test_read_buffer_in_flight() {
-        let mut store = MemoryStore::new(1024);
+        let store = MemoryStore::new(1024);
         let uid = PartitionedUId {
             app_id: "100".to_string(),
             shuffle_id: 0,
             partition_id: 0,
         };
-        let writingViewCtx = create_writing_ctx_with_blocks(10, 10, uid.clone());
-        let _ = store.insert(writingViewCtx).await;
+        let writing_view_ctx = create_writing_ctx_with_blocks(10, 10, uid.clone());
+        let _ = store.insert(writing_view_ctx).await;
 
         let default_single_read_size = 20;
 
@@ -657,7 +652,7 @@ mod test {
         );
 
         // case4: some data are in inflight blocks
-        let mut buffer = store.get_or_create_underlying_staging_buffer(uid.clone());
+        let buffer = store.get_or_create_underlying_staging_buffer(uid.clone());
         let mut buffer = buffer.lock().await;
         let owned = buffer.staging.to_owned();
         buffer.staging.clear();
@@ -691,7 +686,7 @@ mod test {
 
         // case5: old data in in_flight and latest data in staging.
         // read it from the block id 9, and read size of 30
-        let mut buffer = store.get_or_create_underlying_staging_buffer(uid.clone());
+        let buffer = store.get_or_create_underlying_staging_buffer(uid.clone());
         let mut buffer = buffer.lock().await;
         buffer.staging.push(PartitionedDataBlock {
             block_id: 20,
@@ -750,7 +745,7 @@ mod test {
         };
         if let Ok(data) = store.get(ctx).await {
             match data {
-                mem(mem_data) => mem_data,
+                Mem(mem_data) => mem_data,
                 _ => panic!(),
             }
         } else {
@@ -759,7 +754,7 @@ mod test {
     }
 
     fn create_writing_ctx_with_blocks(
-        block_number: i32,
+        _block_number: i32,
         single_block_size: i32,
         uid: PartitionedUId,
     ) -> WritingViewContext {
@@ -779,7 +774,7 @@ mod test {
 
     #[tokio::test]
     async fn test_allocated_and_purge_for_memory() {
-        let mut store = MemoryStore::new(1024 * 1024 * 1024);
+        let store = MemoryStore::new(1024 * 1024 * 1024);
         let ctx = RequireBufferContext {
             uid: PartitionedUId {
                 app_id: "100".to_string(),
@@ -790,7 +785,7 @@ mod test {
         };
         match store.require_buffer(ctx).await {
             Ok(_) => {
-                store.purge("100".to_string()).await;
+                let _ = store.purge("100".to_string()).await;
             }
             _ => panic!(),
         }
@@ -805,8 +800,8 @@ mod test {
 
     #[tokio::test]
     async fn test_put_and_get_for_memory() {
-        let mut store = MemoryStore::new(1024 * 1024 * 1024);
-        let writingCtx = WritingViewContext {
+        let store = MemoryStore::new(1024 * 1024 * 1024);
+        let writing_ctx = WritingViewContext {
             uid: Default::default(),
             data_blocks: vec![
                 PartitionedDataBlock {
@@ -827,15 +822,15 @@ mod test {
                 },
             ],
         };
-        store.insert(writingCtx).await.unwrap();
+        store.insert(writing_ctx).await.unwrap();
 
-        let readingCtx = ReadingViewContext {
+        let reading_ctx = ReadingViewContext {
             uid: Default::default(),
             reading_options: ReadingOptions::MEMORY_LAST_BLOCK_ID_AND_MAX_SIZE(-1, 1000000),
         };
 
-        match store.get(readingCtx).await.unwrap() {
-            ResponseData::mem(data) => {
+        match store.get(reading_ctx).await.unwrap() {
+            ResponseData::Mem(data) => {
                 assert_eq!(data.shuffle_data_block_segments.len(), 2);
                 assert_eq!(data.shuffle_data_block_segments.get(0).unwrap().offset, 0);
                 assert_eq!(data.shuffle_data_block_segments.get(1).unwrap().offset, 10);

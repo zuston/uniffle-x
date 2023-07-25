@@ -1,12 +1,11 @@
 use crate::error::DatanodeError;
-use anyhow::Result;
-use log::info;
+
 use poem::endpoint::make_sync;
 use poem::error::ResponseError;
 use poem::http::StatusCode;
 use poem::listener::TcpListener;
 use poem::{get, Route, RouteMethod, Server};
-use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+
 use std::sync::Mutex;
 
 use crate::http::{HTTPServer, Handler};
