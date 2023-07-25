@@ -5,8 +5,10 @@ use std::net::IpAddr;
 use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+const WORKER_IP: &str = "WORKER_IP";
+
 pub fn get_local_ip() -> Result<IpAddr, std::io::Error> {
-    let ip = std::env::var("DATANODE_IP");
+    let ip = std::env::var(WORKER_IP);
     if ip.is_ok() {
         Ok(ip.unwrap().parse().unwrap())
     } else {

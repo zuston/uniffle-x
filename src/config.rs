@@ -164,7 +164,7 @@ impl StorageType {
     }
 }
 
-const CONFIG_FILE_PATH_KEY: &str = "DATANODE_CONFIG_PATH";
+const CONFIG_FILE_PATH_KEY: &str = "WORKER_CONFIG_PATH";
 
 impl Config {
     pub fn create_from_env() -> Config {

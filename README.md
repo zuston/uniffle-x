@@ -101,7 +101,7 @@ push_gateway_endpoint = "http://xxxxxxxxxxxxxx/pushgateway"
 
 ## Run
 
-`DATANODE_IP={ip} RUST_LOG=info DATANODE_CONFIG_PATH=./config.toml ./datanode`
+`WORKER_IP={ip} RUST_LOG=info WORKER_CONFIG_PATH=./config.toml ./uniffle-worker`
 
 ### HDFS Setup 
 
