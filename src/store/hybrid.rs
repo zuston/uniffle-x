@@ -212,6 +212,15 @@ impl HybridStore {
         Ok(message)
     }
 
+    // For app to check the ticket allocated existence and discard if it has been used
+    pub fn is_buffer_ticket_exist(&self, app_id: &str, ticket_id: i64) -> bool {
+        self.hot_store.is_ticket_exist(app_id, ticket_id)
+    }
+
+    pub fn discard_tickets(&self, app_id: &str, ticket_id: i64) -> i64 {
+        self.hot_store.discard_tickets(app_id, Some(ticket_id))
+    }
+
     pub async fn get_hot_store_memory_snapshot(&self) -> Result<MemorySnapshot> {
         self.hot_store.memory_snapshot().await
     }
@@ -459,9 +468,7 @@ mod tests {
     #[tokio::test]
     async fn test_only_memory() {
         let mut config = Config::default();
-        config.memory_store = Some(MemoryStoreConfig {
-            capacity: "20M".to_string(),
-        });
+        config.memory_store = Some(MemoryStoreConfig::new("20M".to_string()));
         config.hybrid_store = Some(HybridStoreConfig::new(0.8, 0.2, None));
         config.store_type = Some(StorageType::MEMORY);
         let store = HybridStore::from(config);
@@ -490,9 +497,7 @@ mod tests {
         println!("init local file path: {}", temp_path);
 
         let mut config = Config::default();
-        config.memory_store = Some(MemoryStoreConfig {
-            capacity: memory_capacity,
-        });
+        config.memory_store = Some(MemoryStoreConfig::new(memory_capacity));
         config.localfile_store = Some(LocalfileStoreConfig::new(vec![temp_path]));
         config.hybrid_store = Some(HybridStoreConfig::new(
             0.8,

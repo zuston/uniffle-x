@@ -22,16 +22,22 @@ use std::collections::{BTreeMap, HashMap};
 
 use std::str::FromStr;
 
+use crate::store::mem::MemoryBufferTicket;
+use log::error;
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::sync::Mutex;
+use tokio::time::sleep as delay_for;
 
 pub struct MemoryStore {
     // todo: change to RW lock
     state: DashMap<String, DashMap<i32, DashMap<i32, Arc<Mutex<StagingBuffer>>>>>,
     budget: MemoryBudget,
     // key: app_id, value: allocated memory size
-    memory_allocated_of_app: DashMap<String, i64>,
+    memory_allocated_of_app: DashMap<String, DashMap<i64, MemoryBufferTicket>>,
     memory_capacity: i64,
+    buffer_ticket_timeout_sec: i64,
+    buffer_ticket_check_interval_sec: i64,
 }
 
 unsafe impl Send for MemoryStore {}
@@ -44,6 +50,8 @@ impl MemoryStore {
             budget: MemoryBudget::new(max_memory_size),
             memory_allocated_of_app: DashMap::new(),
             memory_capacity: max_memory_size,
+            buffer_ticket_timeout_sec: 5 * 60,
+            buffer_ticket_check_interval_sec: 10,
         }
     }
 
@@ -54,7 +62,14 @@ impl MemoryStore {
             budget: MemoryBudget::new(capacity.as_bytes() as i64),
             memory_allocated_of_app: DashMap::new(),
             memory_capacity: capacity.as_bytes() as i64,
+            buffer_ticket_timeout_sec: conf.buffer_ticket_timeout_sec.unwrap_or(5 * 60),
+            buffer_ticket_check_interval_sec: 10,
         }
+    }
+
+    // only for tests
+    fn refresh_buffer_ticket_check_interval_sec(&mut self, interval: i64) {
+        self.buffer_ticket_check_interval_sec = interval
     }
 
     // todo: make this used size as a var
@@ -197,12 +212,90 @@ impl MemoryStore {
 
         (fetched, fetched_size)
     }
+
+    pub(crate) fn is_ticket_exist(&self, app_id: &str, ticket_id: i64) -> bool {
+        self.memory_allocated_of_app
+            .get(app_id)
+            .map_or(false, |app_entry| app_entry.contains_key(&ticket_id))
+    }
+
+    /// return the discarded memory allocated size
+    pub(crate) fn discard_tickets(&self, app_id: &str, ticket_id_option: Option<i64>) -> i64 {
+        match ticket_id_option {
+            None => self
+                .memory_allocated_of_app
+                .remove(app_id)
+                .map_or(0, |app| app.1.iter().map(|x| x.get_size()).sum()),
+            Some(ticket_id) => self.memory_allocated_of_app.get(app_id).map_or(0, |app| {
+                app.remove(&ticket_id)
+                    .map_or(0, |ticket| ticket.1.get_size())
+            }),
+        }
+    }
+
+    fn cache_buffer_required_ticket(
+        &self,
+        app_id: &str,
+        require_buffer: &RequireBufferResponse,
+        size: i64,
+    ) {
+        let app_entry = self
+            .memory_allocated_of_app
+            .entry(app_id.to_string())
+            .or_insert_with(|| DashMap::default());
+        app_entry.insert(
+            require_buffer.ticket_id,
+            MemoryBufferTicket::new(
+                require_buffer.ticket_id,
+                require_buffer.allocated_timestamp,
+                size,
+            ),
+        );
+    }
+
+    async fn check_allocated_tickets(&self) {
+        // if the ticket is timeout, discard this.
+        let mut timeout_ids = vec![];
+        let iter = self.memory_allocated_of_app.iter();
+        for app in iter {
+            let app_id = &app.key().to_string();
+            let app_iter = app.iter();
+            for ticket in app_iter {
+                if ticket.is_timeout(self.buffer_ticket_timeout_sec) {
+                    timeout_ids.push((app_id.to_string(), ticket.key().clone()))
+                }
+            }
+        }
+        for (app_id, ticket_id) in timeout_ids {
+            info!(
+                "Releasing timeout ticket of id:{}, app_id:{}",
+                ticket_id, app_id
+            );
+            let released = self.discard_tickets(&app_id, Some(ticket_id));
+            if let Err(e) = self.budget.free_allocated(released).await {
+                error!(
+                    "Errors on removing the timeout ticket of id:{}, app_id:{}. error: {:?}",
+                    ticket_id, app_id, e
+                );
+            }
+        }
+    }
 }
 
 #[async_trait]
 impl Store for MemoryStore {
     fn start(self: Arc<Self>) {
-        todo!()
+        // schedule check to find out the timeout allocated buffer ticket
+        let mem_store = self.clone();
+        tokio::spawn(async move {
+            loop {
+                mem_store.check_allocated_tickets().await;
+                delay_for(Duration::from_secs(
+                    mem_store.buffer_ticket_check_interval_sec as u64,
+                ))
+                .await;
+            }
+        });
     }
 
     async fn insert(&self, ctx: WritingViewContext) -> Result<(), DatanodeError> {
@@ -339,25 +432,21 @@ impl Store for MemoryStore {
         let (succeed, ticket_id) = self.budget.pre_allocate(ctx.size).await?;
         match succeed {
             true => {
-                let mut val = self
-                    .memory_allocated_of_app
-                    .entry(ctx.uid.app_id)
-                    .or_insert_with(|| 0);
-                *val += ctx.size;
-                Ok(RequireBufferResponse::new(ticket_id))
+                let require_buffer_resp = RequireBufferResponse::new(ticket_id);
+                self.cache_buffer_required_ticket(
+                    ctx.uid.app_id.as_str(),
+                    &require_buffer_resp,
+                    ctx.size,
+                );
+                Ok(require_buffer_resp)
             }
             _ => Err(DatanodeError::NO_ENOUGH_MEMORY_TO_BE_ALLOCATED),
         }
     }
 
     async fn purge(&self, app_id: String) -> Result<()> {
-        match self.memory_allocated_of_app.get(&app_id) {
-            Some(val) => {
-                self.budget.free_allocated(*val).await.unwrap();
-            }
-            _ => todo!(),
-        }
-
+        let released_size = self.discard_tickets(app_id.as_str(), None);
+        self.budget.free_allocated(released_size).await?;
         self.state.remove(&app_id);
         Ok(())
     }
@@ -574,6 +663,71 @@ mod test {
 
     use bytes::BytesMut;
     use core::panic;
+    use std::sync::Arc;
+    use std::time::Duration;
+
+    use crate::config::MemoryStoreConfig;
+    use anyhow::Result;
+    use tokio::time::sleep as delay_for;
+
+    #[tokio::test]
+    async fn test_ticket_timeout() -> Result<()> {
+        let cfg = MemoryStoreConfig::from("2M".to_string(), 1);
+
+        let mut store = MemoryStore::from(cfg);
+        store.refresh_buffer_ticket_check_interval_sec(1);
+
+        let store = Arc::new(store);
+        store.clone().start();
+
+        let app_id = "mocked-app-id";
+        let ctx = RequireBufferContext::new(PartitionedUId::from(app_id.to_string(), 1, 1), 1000);
+        let resp = store.require_buffer(ctx.clone()).await?;
+        assert!(store.is_ticket_exist(app_id, resp.ticket_id));
+
+        let snapshot = store.budget.snapshot().await;
+        assert_eq!(snapshot.allocated, 1000);
+        assert_eq!(snapshot.used, 0);
+
+        delay_for(Duration::from_secs(5)).await;
+
+        assert!(!store.is_ticket_exist(app_id, resp.ticket_id));
+
+        let snapshot = store.budget.snapshot().await;
+        assert_eq!(snapshot.allocated, 0);
+        assert_eq!(snapshot.used, 0);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_memory_buffer_ticket() -> Result<()> {
+        let store = MemoryStore::new(1024 * 1000);
+
+        let app_id = "mocked-app-id";
+        let ctx = RequireBufferContext::new(PartitionedUId::from(app_id.to_string(), 1, 1), 1000);
+        let resp = store.require_buffer(ctx.clone()).await?;
+        let ticket_id_1 = resp.ticket_id;
+
+        let resp = store.require_buffer(ctx.clone()).await?;
+        let ticket_id_2 = resp.ticket_id;
+
+        assert!(store.is_ticket_exist(app_id, ticket_id_1));
+        assert!(store.is_ticket_exist(app_id, ticket_id_2));
+        assert!(!store.is_ticket_exist(app_id, 100239));
+
+        let snapshot = store.budget.snapshot().await;
+        assert_eq!(snapshot.allocated, 1000 * 2);
+        assert_eq!(snapshot.used, 0);
+
+        store.purge(app_id.to_string()).await?;
+
+        let snapshot = store.budget.snapshot().await;
+        assert_eq!(snapshot.allocated, 0);
+        assert_eq!(snapshot.used, 0);
+
+        Ok(())
+    }
 
     #[tokio::test]
     async fn test_read_buffer_in_flight() {
