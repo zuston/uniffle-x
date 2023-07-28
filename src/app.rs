@@ -206,6 +206,15 @@ impl App {
         }
     }
 
+    pub fn is_buffer_ticket_exist(&self, ticket_id: i64) -> bool {
+        self.store
+            .is_buffer_ticket_exist(self.app_id.as_str(), ticket_id)
+    }
+
+    pub fn discard_tickets(&self, ticket_id: i64) -> i64 {
+        self.store.discard_tickets(self.app_id.as_str(), ticket_id)
+    }
+
     pub async fn require_buffer(
         &self,
         ctx: RequireBufferContext,
@@ -283,9 +292,16 @@ pub struct ReadingIndexViewContext {
     pub partition_id: PartitionedUId,
 }
 
+#[derive(Debug, Clone)]
 pub struct RequireBufferContext {
     pub uid: PartitionedUId,
     pub size: i64,
+}
+
+impl RequireBufferContext {
+    pub fn new(uid: PartitionedUId, size: i64) -> Self {
+        Self { uid, size }
+    }
 }
 
 pub enum ReadingOptions {
@@ -542,9 +558,7 @@ mod test {
         println!("init local file path: {}", temp_path);
 
         let mut config = Config::default();
-        config.memory_store = Some(MemoryStoreConfig {
-            capacity: (1024 * 1024).to_string(),
-        });
+        config.memory_store = Some(MemoryStoreConfig::new((1024 * 1024).to_string()));
         config.localfile_store = Some(LocalfileStoreConfig::new(vec![temp_path]));
         config.hybrid_store = Some(HybridStoreConfig::default());
         config

@@ -5,6 +5,23 @@ use std::path::Path;
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct MemoryStoreConfig {
     pub capacity: String,
+    pub buffer_ticket_timeout_sec: Option<i64>,
+}
+
+impl MemoryStoreConfig {
+    pub fn new(capacity: String) -> Self {
+        Self {
+            capacity,
+            buffer_ticket_timeout_sec: Some(5 * 60),
+        }
+    }
+
+    pub fn from(capacity: String, buffer_ticket_timeout_sec: i64) -> Self {
+        Self {
+            capacity,
+            buffer_ticket_timeout_sec: Some(buffer_ticket_timeout_sec),
+        }
+    }
 }
 
 // =========================================================

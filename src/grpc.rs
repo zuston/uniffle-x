@@ -86,6 +86,7 @@ impl ShuffleServer for DefaultShuffleServer {
         let req = request.into_inner();
         let app_id = req.app_id;
         let shuffle_id: i32 = req.shuffle_id;
+        let ticket_id = req.require_buffer_id;
 
         let app_option = self.app_manager_ref.get_app(&app_id);
 
@@ -97,6 +98,15 @@ impl ShuffleServer for DefaultShuffleServer {
         }
 
         let app = app_option.unwrap();
+
+        if !app.is_buffer_ticket_exist(ticket_id) {
+            return Ok(Response::new(SendShuffleDataResponse {
+                status: StatusCode::NO_BUFFER.into(),
+                ret_msg: "No such buffer ticket id, it may be discarded due to timeout".to_string(),
+            }));
+        } else {
+            app.discard_tickets(ticket_id);
+        }
 
         let _blocks: Vec<PartitionedDataBlock> = vec![];
         for shuffle_data in req.shuffle_data {

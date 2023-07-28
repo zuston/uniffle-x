@@ -9,7 +9,8 @@ mod tests {
     use datanode::proto::uniffle::shuffle_server_client::ShuffleServerClient;
     use datanode::proto::uniffle::{
         GetLocalShuffleDataRequest, GetLocalShuffleIndexRequest, GetMemoryShuffleDataRequest,
-        SendShuffleDataRequest, ShuffleBlock, ShuffleData, ShuffleRegisterRequest,
+        RequireBufferRequest, SendShuffleDataRequest, ShuffleBlock, ShuffleData,
+        ShuffleRegisterRequest,
     };
     use datanode::start_datanode;
 
@@ -18,7 +19,7 @@ mod tests {
 
     fn create_mocked_config(grpc_port: i32, capacity: String, local_data_path: String) -> Config {
         Config {
-            memory_store: Some(MemoryStoreConfig { capacity }),
+            memory_store: Some(MemoryStoreConfig::new(capacity)),
             localfile_store: Some(LocalfileStoreConfig {
                 data_paths: vec![local_data_path],
                 healthy_check_min_disks: Some(0),
@@ -60,7 +61,7 @@ mod tests {
         println!("created the temp file path: {}", &temp_path);
 
         let port = 21101;
-        let config = create_mocked_config(port, "1B".to_string(), temp_path);
+        let config = create_mocked_config(port, "1G".to_string(), temp_path);
         let _ = start_datanode(config).await;
 
         tokio::time::sleep(Duration::from_secs(1)).await;
@@ -96,11 +97,23 @@ mod tests {
 
             all_bytes_data.extend_from_slice(data);
 
+            let buffer_required_resp = client
+                .require_buffer(RequireBufferRequest {
+                    require_size: len as i32,
+                    app_id: app_id.clone(),
+                    shuffle_id: 0,
+                    partition_ids: vec![],
+                })
+                .await?
+                .into_inner();
+
+            assert_eq!(0, buffer_required_resp.status);
+
             let response = client
                 .send_shuffle_data(SendShuffleDataRequest {
                     app_id: app_id.clone(),
                     shuffle_id: 0,
-                    require_buffer_id: 0,
+                    require_buffer_id: buffer_required_resp.require_buffer_id,
                     shuffle_data: vec![ShuffleData {
                         partition_id: idx,
                         block: vec![ShuffleBlock {

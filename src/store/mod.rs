@@ -1,6 +1,7 @@
 pub mod hdfs;
 pub mod hybrid;
 pub mod localfile;
+pub mod mem;
 pub mod memory;
 
 use crate::app::{
