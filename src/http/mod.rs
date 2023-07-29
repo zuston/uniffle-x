@@ -1,10 +1,12 @@
 mod await_tree;
 mod http_service;
+mod jeprof;
 mod metrics;
 mod pprof;
 
 use crate::http::await_tree::AwaitTreeHandler;
 use crate::http::http_service::PoemHTTPServer;
+use crate::http::jeprof::JeProfHandler;
 use crate::http::metrics::MetricsHTTPHandler;
 use crate::http::pprof::PProfHandler;
 use lazy_static::lazy_static;
@@ -30,5 +32,6 @@ fn new_server() -> Box<PoemHTTPServer> {
     server.register_handler(PProfHandler::default());
     server.register_handler(MetricsHTTPHandler::default());
     server.register_handler(AwaitTreeHandler::default());
+    server.register_handler(JeProfHandler::default());
     Box::new(server)
 }

@@ -26,6 +26,7 @@ mod config;
 mod error;
 pub mod grpc;
 mod http;
+mod mem_allocator;
 mod metric;
 pub mod proto;
 mod readable_size;
