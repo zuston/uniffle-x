@@ -31,6 +31,7 @@ pub mod proto;
 mod readable_size;
 pub mod store;
 mod util;
+mod mem_allocator;
 
 const DEFAULT_SHUFFLE_SERVER_TAG: &str = "ss_v4";
 

@@ -9,6 +9,7 @@ pub mod proto;
 pub mod readable_size;
 pub mod store;
 pub mod util;
+mod mem_allocator;
 
 use crate::app::AppManager;
 use crate::grpc::DefaultShuffleServer;
