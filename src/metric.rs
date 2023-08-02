@@ -127,17 +127,14 @@ fn register_custom_metrics() {
         .expect("memory_spill_to_hdfs must be registered");
 }
 
-pub fn configure_metric_service(
-    metric_config: &Option<MetricsConfig>,
-    datanode_uid: String,
-) -> bool {
+pub fn configure_metric_service(metric_config: &Option<MetricsConfig>, worker_uid: String) -> bool {
     if metric_config.is_none() {
         return false;
     }
 
     register_custom_metrics();
 
-    let job_name = "uniffle-datanode";
+    let job_name = "uniffle-worker";
 
     let cfg = metric_config.clone().unwrap();
 
@@ -158,7 +155,7 @@ pub fn configure_metric_service(
 
                 let pushed_result = prometheus::push_metrics(
                     job_name,
-                    labels! {"datanode_id".to_owned() => datanode_uid.to_owned(),},
+                    labels! {"worker_id".to_owned() => worker_uid.to_owned(),},
                     &push_gateway_endpoint.to_owned().unwrap().to_owned(),
                     metrics,
                     None,

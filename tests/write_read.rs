@@ -2,17 +2,17 @@
 mod tests {
     use anyhow::Result;
     use bytes::{Buf, Bytes, BytesMut};
-    use datanode::config::{
+    use uniffle_worker::config::{
         Config, HybridStoreConfig, LocalfileStoreConfig, MemoryStoreConfig, MetricsConfig,
         StorageType,
     };
-    use datanode::proto::uniffle::shuffle_server_client::ShuffleServerClient;
-    use datanode::proto::uniffle::{
+    use uniffle_worker::proto::uniffle::shuffle_server_client::ShuffleServerClient;
+    use uniffle_worker::proto::uniffle::{
         GetLocalShuffleDataRequest, GetLocalShuffleIndexRequest, GetMemoryShuffleDataRequest,
         RequireBufferRequest, SendShuffleDataRequest, ShuffleBlock, ShuffleData,
         ShuffleRegisterRequest,
     };
-    use datanode::start_datanode;
+    use uniffle_worker::start_uniffle_worker;
 
     use std::time::Duration;
     use tonic::transport::Channel;
@@ -62,7 +62,7 @@ mod tests {
 
         let port = 21101;
         let config = create_mocked_config(port, "1G".to_string(), temp_path);
-        let _ = start_datanode(config).await;
+        let _ = start_uniffle_worker(config).await;
 
         tokio::time::sleep(Duration::from_secs(1)).await;
         let mut client =

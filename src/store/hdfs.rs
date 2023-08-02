@@ -3,7 +3,7 @@ use crate::app::{
     WritingViewContext,
 };
 use crate::config::HdfsStoreConfig;
-use crate::error::DatanodeError;
+use crate::error::WorkerError;
 
 use crate::metric::TOTAL_HDFS_USED;
 use crate::store::{Persistent, RequireBufferResponse, ResponseData, ResponseDataIndex, Store};
@@ -117,7 +117,7 @@ impl Store for HdfsStore {
         info!("There is nothing to do in hdfs store");
     }
 
-    async fn insert(&self, ctx: WritingViewContext) -> Result<(), DatanodeError> {
+    async fn insert(&self, ctx: WritingViewContext) -> Result<(), WorkerError> {
         let uid = ctx.uid;
         let data_blocks = ctx.data_blocks;
 
@@ -131,7 +131,7 @@ impl Store for HdfsStore {
                 data_file_path
             ))
             .await
-            .map_err(|e| DatanodeError::from(e))?;
+            .map_err(|e| WorkerError::from(e))?;
 
         let lock_cloned = self
             .partition_file_locks
@@ -211,21 +211,21 @@ impl Store for HdfsStore {
         Ok(())
     }
 
-    async fn get(&self, _ctx: ReadingViewContext) -> Result<ResponseData, DatanodeError> {
+    async fn get(&self, _ctx: ReadingViewContext) -> Result<ResponseData, WorkerError> {
         todo!()
     }
 
     async fn get_index(
         &self,
         _ctx: ReadingIndexViewContext,
-    ) -> Result<ResponseDataIndex, DatanodeError> {
+    ) -> Result<ResponseDataIndex, WorkerError> {
         todo!()
     }
 
     async fn require_buffer(
         &self,
         _ctx: RequireBufferContext,
-    ) -> Result<RequireBufferResponse, DatanodeError> {
+    ) -> Result<RequireBufferResponse, WorkerError> {
         todo!()
     }
 

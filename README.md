@@ -76,7 +76,7 @@ config.toml as follows:
 store_type = "MEMORY_LOCALFILE"
 grpc_port = 21100
 coordinator_quorum = ["xxxxxxx1", "xxxxxxx2]
-tags = ["datanode"]
+tags = ["uniffle-worker"]
 
 [memory_store]
 capacity = "100G"

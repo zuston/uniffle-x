@@ -1,5 +1,5 @@
 use crate::config::Config;
-use crate::error::DatanodeError;
+use crate::error::WorkerError;
 use crate::metric::{
     GAUGE_APP_NUMBER, TOTAL_APP_NUMBER, TOTAL_HUGE_PARTITION_REQUIRE_BUFFER_FAILED,
     TOTAL_RECEIVED_DATA, TOTAL_REQUIRE_BUFFER_FAILED,
@@ -156,7 +156,7 @@ impl App {
         Ok(())
     }
 
-    pub async fn insert(&self, ctx: WritingViewContext) -> Result<(), DatanodeError> {
+    pub async fn insert(&self, ctx: WritingViewContext) -> Result<(), WorkerError> {
         let len: i32 = ctx.data_blocks.iter().map(|block| block.length).sum();
         self.get_underlying_partition_bitmap(ctx.uid.clone())
             .incr_data_size(len)
@@ -166,14 +166,14 @@ impl App {
         self.store.insert(ctx).await
     }
 
-    pub async fn select(&self, ctx: ReadingViewContext) -> Result<ResponseData, DatanodeError> {
+    pub async fn select(&self, ctx: ReadingViewContext) -> Result<ResponseData, WorkerError> {
         self.store.get(ctx).await
     }
 
     pub async fn list_index(
         &self,
         ctx: ReadingIndexViewContext,
-    ) -> Result<ResponseDataIndex, DatanodeError> {
+    ) -> Result<ResponseDataIndex, WorkerError> {
         self.store.get_index(ctx).await
     }
 
@@ -218,10 +218,10 @@ impl App {
     pub async fn require_buffer(
         &self,
         ctx: RequireBufferContext,
-    ) -> Result<RequireBufferResponse, DatanodeError> {
+    ) -> Result<RequireBufferResponse, WorkerError> {
         if self.huge_partition_limit(&ctx.uid).await? {
             TOTAL_REQUIRE_BUFFER_FAILED.inc();
-            return Err(DatanodeError::MEMORY_USAGE_LIMITED_BY_HUGE_PARTITION);
+            return Err(WorkerError::MEMORY_USAGE_LIMITED_BY_HUGE_PARTITION);
         }
 
         self.store.require_buffer(ctx).await

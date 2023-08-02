@@ -19,7 +19,7 @@ pub fn get_local_ip() -> Result<IpAddr, std::io::Error> {
     }
 }
 
-pub fn gen_datanode_uid(grpc_port: i32) -> String {
+pub fn gen_worker_uid(grpc_port: i32) -> String {
     let ip = get_local_ip().unwrap().to_string();
     format!("{}-{}", ip.clone(), grpc_port)
 }

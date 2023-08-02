@@ -8,7 +8,7 @@ use crate::app::{
     ReadingIndexViewContext, ReadingViewContext, RequireBufferContext, WritingViewContext,
 };
 use crate::config::Config;
-use crate::error::DatanodeError;
+use crate::error::WorkerError;
 use crate::proto::uniffle::{ShuffleData, ShuffleDataBlockSegment};
 use crate::store::hybrid::HybridStore;
 
@@ -141,16 +141,16 @@ impl RequireBufferResponse {
 #[async_trait]
 pub trait Store {
     fn start(self: Arc<Self>);
-    async fn insert(&self, ctx: WritingViewContext) -> Result<(), DatanodeError>;
-    async fn get(&self, ctx: ReadingViewContext) -> Result<ResponseData, DatanodeError>;
+    async fn insert(&self, ctx: WritingViewContext) -> Result<(), WorkerError>;
+    async fn get(&self, ctx: ReadingViewContext) -> Result<ResponseData, WorkerError>;
     async fn get_index(
         &self,
         ctx: ReadingIndexViewContext,
-    ) -> Result<ResponseDataIndex, DatanodeError>;
+    ) -> Result<ResponseDataIndex, WorkerError>;
     async fn require_buffer(
         &self,
         ctx: RequireBufferContext,
-    ) -> Result<RequireBufferResponse, DatanodeError>;
+    ) -> Result<RequireBufferResponse, WorkerError>;
     async fn purge(&self, app_id: String) -> Result<()>;
     async fn is_healthy(&self) -> Result<bool>;
 }

@@ -5,7 +5,7 @@ use crate::app::{
 use crate::await_tree::AWAIT_TREE_REGISTRY;
 
 use crate::config::{Config, HybridStoreConfig, StorageType};
-use crate::error::DatanodeError;
+use crate::error::WorkerError;
 use crate::metric::{
     GAUGE_MEMORY_SPILL_OPERATION, GAUGE_MEMORY_SPILL_TO_HDFS, GAUGE_MEMORY_SPILL_TO_LOCALFILE,
     TOTAL_MEMORY_SPILL_OPERATION, TOTAL_MEMORY_SPILL_OPERATION_FAILED, TOTAL_MEMORY_SPILL_TO_HDFS,
@@ -133,7 +133,7 @@ impl HybridStore {
         &self,
         mut ctx: WritingViewContext,
         in_flight_blocks_id: i64,
-    ) -> Result<String, DatanodeError> {
+    ) -> Result<String, WorkerError> {
         let uid = ctx.uid.clone();
         let blocks = &ctx.data_blocks;
         let mut spill_size = 0i64;
@@ -183,7 +183,7 @@ impl HybridStore {
         let inserted = candidate_store.insert(ctx).await;
         if let Err(err) = inserted {
             match err {
-                DatanodeError::PARTIAL_DATA_LOST(msg) => {
+                WorkerError::PARTIAL_DATA_LOST(msg) => {
                     let err_msg = format!(
                         "Partial data has been lost. Let's abort this partition data. error: {}",
                         &msg
@@ -319,7 +319,7 @@ impl Store for HybridStore {
         });
     }
 
-    async fn insert(&self, ctx: WritingViewContext) -> Result<(), DatanodeError> {
+    async fn insert(&self, ctx: WritingViewContext) -> Result<(), WorkerError> {
         let uid = ctx.uid.clone();
 
         let insert_result = self.hot_store.insert(ctx).await;
@@ -365,7 +365,7 @@ impl Store for HybridStore {
         insert_result
     }
 
-    async fn get(&self, ctx: ReadingViewContext) -> Result<ResponseData, DatanodeError> {
+    async fn get(&self, ctx: ReadingViewContext) -> Result<ResponseData, WorkerError> {
         match ctx.reading_options {
             ReadingOptions::MEMORY_LAST_BLOCK_ID_AND_MAX_SIZE(_, _) => {
                 self.hot_store.get(ctx).await
@@ -377,14 +377,14 @@ impl Store for HybridStore {
     async fn get_index(
         &self,
         ctx: ReadingIndexViewContext,
-    ) -> Result<ResponseDataIndex, DatanodeError> {
+    ) -> Result<ResponseDataIndex, WorkerError> {
         self.warm_store.as_ref().unwrap().get_index(ctx).await
     }
 
     async fn require_buffer(
         &self,
         ctx: RequireBufferContext,
-    ) -> Result<RequireBufferResponse, DatanodeError> {
+    ) -> Result<RequireBufferResponse, WorkerError> {
         self.hot_store.require_buffer(ctx).await
     }
 

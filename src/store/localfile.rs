@@ -4,7 +4,7 @@ use crate::app::{
     WritingViewContext,
 };
 use crate::config::LocalfileStoreConfig;
-use crate::error::DatanodeError;
+use crate::error::WorkerError;
 use crate::metric::TOTAL_LOCALFILE_USED;
 use crate::store::ResponseDataIndex::Local;
 use crate::store::{
@@ -175,7 +175,7 @@ impl LocalFileStore {
         Ok(available > self.healthy_check_min_disks)
     }
 
-    async fn select_disk(&self, uid: &PartitionedUId) -> Result<Arc<LocalDisk>, DatanodeError> {
+    async fn select_disk(&self, uid: &PartitionedUId) -> Result<Arc<LocalDisk>, WorkerError> {
         let hash_value = PartitionedUId::get_hash(uid);
 
         let mut candidates = vec![];
@@ -188,14 +188,14 @@ impl LocalFileStore {
         let len = candidates.len();
         if len == 0 {
             error!("There is no available local disk!");
-            return Err(DatanodeError::NO_AVAILABLE_LOCAL_DISK);
+            return Err(WorkerError::NO_AVAILABLE_LOCAL_DISK);
         }
 
         let index = (hash_value % len as u64) as usize;
         if let Some(&disk) = candidates.get(index) {
             Ok(disk.clone())
         } else {
-            Err(DatanodeError::INTERNAL_ERROR)
+            Err(WorkerError::INTERNAL_ERROR)
         }
     }
 }
@@ -206,7 +206,7 @@ impl Store for LocalFileStore {
         todo!()
     }
 
-    async fn insert(&self, ctx: WritingViewContext) -> Result<(), DatanodeError> {
+    async fn insert(&self, ctx: WritingViewContext) -> Result<(), WorkerError> {
         if ctx.data_blocks.len() <= 0 {
             return Ok(());
         }
@@ -218,7 +218,7 @@ impl Store for LocalFileStore {
         let local_disk = self.get_or_create_owned_disk(uid.clone()).await?;
 
         if local_disk.is_corrupted()? {
-            return Err(DatanodeError::PARTIAL_DATA_LOST(
+            return Err(WorkerError::PARTIAL_DATA_LOST(
                 local_disk.base_path.to_string(),
             ));
         }
@@ -283,7 +283,7 @@ impl Store for LocalFileStore {
         Ok(())
     }
 
-    async fn get(&self, ctx: ReadingViewContext) -> Result<ResponseData, DatanodeError> {
+    async fn get(&self, ctx: ReadingViewContext) -> Result<ResponseData, WorkerError> {
         let uid = ctx.uid;
         let (offset, len) = match ctx.reading_options {
             FILE_OFFSET_AND_LEN(offset, len) => (offset, len),
@@ -320,7 +320,7 @@ impl Store for LocalFileStore {
         let local_disk = local_disk.unwrap();
 
         if local_disk.is_corrupted()? {
-            return Err(DatanodeError::LOCAL_DISK_OWNED_BY_PARTITION_CORRUPTED(
+            return Err(WorkerError::LOCAL_DISK_OWNED_BY_PARTITION_CORRUPTED(
                 local_disk.base_path.to_string(),
             ));
         }
@@ -332,7 +332,7 @@ impl Store for LocalFileStore {
     async fn get_index(
         &self,
         ctx: ReadingIndexViewContext,
-    ) -> Result<ResponseDataIndex, DatanodeError> {
+    ) -> Result<ResponseDataIndex, WorkerError> {
         let uid = ctx.partition_id;
         let (data_file_path, index_file_path) =
             LocalFileStore::gen_relative_path_for_partition(&uid);
@@ -360,7 +360,7 @@ impl Store for LocalFileStore {
         let local_disk = local_disk.unwrap();
 
         if local_disk.is_corrupted()? {
-            return Err(DatanodeError::LOCAL_DISK_OWNED_BY_PARTITION_CORRUPTED(
+            return Err(WorkerError::LOCAL_DISK_OWNED_BY_PARTITION_CORRUPTED(
                 local_disk.base_path.to_string(),
             ));
         }
@@ -376,7 +376,7 @@ impl Store for LocalFileStore {
     async fn require_buffer(
         &self,
         _ctx: RequireBufferContext,
-    ) -> Result<RequireBufferResponse, DatanodeError> {
+    ) -> Result<RequireBufferResponse, WorkerError> {
         todo!()
     }
 
@@ -390,7 +390,7 @@ impl Store for LocalFileStore {
 
         let (shuffle_id, partition_id) = all_partition_ids
             .get(0)
-            .ok_or(DatanodeError::INTERNAL_ERROR)?;
+            .ok_or(WorkerError::INTERNAL_ERROR)?;
 
         // delete app dir
         let local_disk_option = self.get_owned_disk(PartitionedUId::from(
