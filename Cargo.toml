@@ -10,7 +10,7 @@ name="uniffle-worker"
 path= "src/main.rs"
 
 [lib]
-name = "datanode"
+name = "uniffle_worker"
 path = "src/lib.rs"
 
 [features]

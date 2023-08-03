@@ -8,7 +8,7 @@ use crate::metric::configure_metric_service;
 use crate::proto::uniffle::coordinator_server_client::CoordinatorServerClient;
 use crate::proto::uniffle::shuffle_server_server::ShuffleServerServer;
 use crate::proto::uniffle::{ShuffleServerHeartBeatRequest, ShuffleServerId};
-use crate::util::{gen_datanode_uid, get_local_ip};
+use crate::util::{gen_worker_uid, get_local_ip};
 use anyhow::Result;
 use log::info;
 
@@ -40,7 +40,7 @@ async fn schedule_coordinator_report(
     coordinator_quorum: Vec<String>,
     grpc_port: i32,
     tags: Vec<String>,
-    datanode_uid: String,
+    worker_uid: String,
 ) -> anyhow::Result<()> {
     tokio::spawn(async move {
         let ip = get_local_ip().unwrap().to_string();
@@ -48,7 +48,7 @@ async fn schedule_coordinator_report(
         info!("machine ip: {}", ip.clone());
 
         let shuffle_server_id = ShuffleServerId {
-            id: datanode_uid,
+            id: worker_uid,
             ip,
             port: grpc_port,
             netty_port: 0,
@@ -106,7 +106,7 @@ async fn schedule_coordinator_report(
     Ok(())
 }
 
-const LOG_FILE_NAME: &str = "uniffle-datanode.log";
+const LOG_FILE_NAME: &str = "uniffle-worker.log";
 
 fn init_log(log: &LogConfig) -> WorkerGuard {
     let file_appender = match log.rotation {
@@ -145,10 +145,10 @@ async fn main() -> Result<()> {
     let _guard = init_log(log_config);
 
     let rpc_port = config.grpc_port.unwrap_or(19999);
-    let datanode_uid = gen_datanode_uid(rpc_port);
+    let worker_uid = gen_worker_uid(rpc_port);
 
     let metric_config = config.metrics.clone();
-    configure_metric_service(&metric_config, datanode_uid.clone());
+    configure_metric_service(&metric_config, worker_uid.clone());
 
     let coordinator_quorum = config.coordinator_quorum.clone();
     let tags = config.tags.clone().unwrap_or(vec![]);
@@ -158,7 +158,7 @@ async fn main() -> Result<()> {
         coordinator_quorum,
         rpc_port,
         tags,
-        datanode_uid,
+        worker_uid,
     )
     .await;
 

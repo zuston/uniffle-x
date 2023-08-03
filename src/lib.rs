@@ -16,17 +16,17 @@ use crate::grpc::DefaultShuffleServer;
 use crate::http::{HTTPServer, HTTP_SERVICE};
 use crate::metric::configure_metric_service;
 use crate::proto::uniffle::shuffle_server_server::ShuffleServerServer;
-use crate::util::gen_datanode_uid;
+use crate::util::gen_worker_uid;
 use anyhow::Result;
 use log::info;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use tonic::transport::Server;
 
-pub async fn start_datanode(config: config::Config) -> Result<()> {
+pub async fn start_uniffle_worker(config: config::Config) -> Result<()> {
     let rpc_port = config.grpc_port.unwrap_or(19999);
-    let datanode_uid = gen_datanode_uid(rpc_port);
+    let worker_uid = gen_worker_uid(rpc_port);
     let metric_config = config.metrics.clone();
-    configure_metric_service(&metric_config, datanode_uid.clone());
+    configure_metric_service(&metric_config, worker_uid.clone());
     // start the http monitor service
     let http_port = config.http_monitor_service_port.unwrap_or(20010);
     HTTP_SERVICE.start(http_port);

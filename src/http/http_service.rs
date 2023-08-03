@@ -1,4 +1,4 @@
-use crate::error::DatanodeError;
+use crate::error::WorkerError;
 
 use poem::endpoint::make_sync;
 use poem::error::ResponseError;
@@ -10,7 +10,7 @@ use std::sync::Mutex;
 
 use crate::http::{HTTPServer, Handler};
 
-impl ResponseError for DatanodeError {
+impl ResponseError for WorkerError {
     fn status(&self) -> StatusCode {
         StatusCode::BAD_REQUEST
     }

@@ -1,4 +1,3 @@
-use crate::error::DatanodeError::Other;
 use anyhow::Error;
 
 use log::error;
@@ -8,7 +7,7 @@ use tokio::sync::AcquireError;
 
 #[derive(Error, Debug)]
 #[allow(non_camel_case_types)]
-pub enum DatanodeError {
+pub enum WorkerError {
     #[error("There is no available disks in local file store")]
     NO_AVAILABLE_LOCAL_DISK,
 
@@ -34,15 +33,15 @@ pub enum DatanodeError {
     HTTP_SERVICE_ERROR(String),
 }
 
-impl From<AcquireError> for DatanodeError {
+impl From<AcquireError> for WorkerError {
     fn from(error: AcquireError) -> Self {
-        Other(Error::new(error))
+        WorkerError::Other(Error::new(error))
     }
 }
 
-impl From<ParseQueryError> for DatanodeError {
+impl From<ParseQueryError> for WorkerError {
     fn from(error: ParseQueryError) -> Self {
-        Other(Error::new(error))
+        WorkerError::Other(Error::new(error))
     }
 }
 
@@ -54,7 +53,7 @@ mod tests {
     #[test]
     pub fn error_test() -> Result<()> {
         // bail macro means it will return directly.
-        // bail!(DatanodeError::APP_PURGE_EVENT_SEND_ERROR("error_test_app_id".into(), None));
+        // bail!(WorkerError::APP_PURGE_EVENT_SEND_ERROR("error_test_app_id".into(), None));
         Ok(())
     }
 }

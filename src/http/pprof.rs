@@ -1,4 +1,4 @@
-use crate::error::DatanodeError;
+use crate::error::WorkerError;
 use crate::http::Handler;
 use log::error;
 
@@ -27,30 +27,30 @@ impl Default for PProfRequest {
 }
 
 #[handler]
-async fn pprof_handler(req: &Request) -> poem::Result<Vec<u8>, DatanodeError> {
+async fn pprof_handler(req: &Request) -> poem::Result<Vec<u8>, WorkerError> {
     let req = req.params::<PProfRequest>()?;
     let mut body: Vec<u8> = Vec::new();
 
     let guard = ProfilerGuard::new(req.frequency.into()).map_err(|e| {
         let msg = format!("could not start profiling: {:?}", e);
         error!("{}", msg);
-        DatanodeError::HTTP_SERVICE_ERROR(msg)
+        WorkerError::HTTP_SERVICE_ERROR(msg)
     })?;
     delay_for(Duration::from_secs(req.seconds)).await;
     let report = guard.report().build().map_err(|e| {
         let msg = format!("could not build profiling report: {:?}", e);
         error!("{}", msg);
-        DatanodeError::HTTP_SERVICE_ERROR(msg)
+        WorkerError::HTTP_SERVICE_ERROR(msg)
     })?;
     let profile = report.pprof().map_err(|e| {
         let msg = format!("could not get pprof profile: {:?}", e);
         error!("{}", msg);
-        DatanodeError::HTTP_SERVICE_ERROR(msg)
+        WorkerError::HTTP_SERVICE_ERROR(msg)
     })?;
     profile.write_to_vec(&mut body).map_err(|e| {
         let msg = format!("could not write pprof profile: {:?}", e);
         error!("{}", msg);
-        DatanodeError::HTTP_SERVICE_ERROR(msg)
+        WorkerError::HTTP_SERVICE_ERROR(msg)
     })?;
     Ok(body)
 }

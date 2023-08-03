@@ -4,7 +4,7 @@ use crate::app::{
     WritingViewContext,
 };
 use crate::config::MemoryStoreConfig;
-use crate::error::DatanodeError;
+use crate::error::WorkerError;
 use crate::metric::{
     GAUGE_MEMORY_ALLOCATED, GAUGE_MEMORY_CAPACITY, GAUGE_MEMORY_USED, TOTAL_MEMORY_USED,
 };
@@ -298,7 +298,7 @@ impl Store for MemoryStore {
         });
     }
 
-    async fn insert(&self, ctx: WritingViewContext) -> Result<(), DatanodeError> {
+    async fn insert(&self, ctx: WritingViewContext) -> Result<(), WorkerError> {
         let uid = ctx.uid;
         let buffer = self.get_or_create_underlying_staging_buffer(uid.clone());
         let mut buffer_guarded = buffer.lock().await;
@@ -312,7 +312,7 @@ impl Store for MemoryStore {
         Ok(())
     }
 
-    async fn get(&self, ctx: ReadingViewContext) -> Result<ResponseData, DatanodeError> {
+    async fn get(&self, ctx: ReadingViewContext) -> Result<ResponseData, WorkerError> {
         let uid = ctx.uid;
         let buffer = self.get_or_create_underlying_staging_buffer(uid);
         let buffer = buffer.lock().await;
@@ -421,14 +421,14 @@ impl Store for MemoryStore {
     async fn get_index(
         &self,
         _ctx: ReadingIndexViewContext,
-    ) -> Result<ResponseDataIndex, DatanodeError> {
+    ) -> Result<ResponseDataIndex, WorkerError> {
         panic!("It should not be invoked.")
     }
 
     async fn require_buffer(
         &self,
         ctx: RequireBufferContext,
-    ) -> Result<RequireBufferResponse, DatanodeError> {
+    ) -> Result<RequireBufferResponse, WorkerError> {
         let (succeed, ticket_id) = self.budget.pre_allocate(ctx.size).await?;
         match succeed {
             true => {
@@ -440,7 +440,7 @@ impl Store for MemoryStore {
                 );
                 Ok(require_buffer_resp)
             }
-            _ => Err(DatanodeError::NO_ENOUGH_MEMORY_TO_BE_ALLOCATED),
+            _ => Err(WorkerError::NO_ENOUGH_MEMORY_TO_BE_ALLOCATED),
         }
     }
 
