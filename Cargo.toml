@@ -13,6 +13,20 @@ path= "src/main.rs"
 name = "datanode"
 path = "src/lib.rs"
 
+[features]
+# whether to use jemalloc as the global allocator or not
+jemalloc = [
+    "dep:tikv-jemalloc-ctl",
+    "dep:tikv-jemalloc-sys",
+    "dep:tikv-jemallocator",
+]
+
+# whether to enable memory profiling or not, once enabled, it implies using jemalloc as the global allocator
+memory-prof = [
+    "jemalloc",
+    "tikv-jemallocator/profiling"
+]
+
 [dependencies]
 anyhow = "1"
 tokio = { version = "1.28.2", features = ["full" ] }
@@ -52,6 +66,22 @@ pprof = { version = "0.11.1", features = [
     "protobuf-codec",
     "protobuf",
 ] }
+tempfile = "3.7.0"
+
+# jemalloc related optional dependencies
+[dependencies.tikv-jemalloc-ctl]
+version = "0.5.0"
+optional = true
+
+[dependencies.tikv-jemalloc-sys]
+version = "0.5.0"
+optional = true
+features = ["stats"]
+
+[dependencies.tikv-jemallocator]
+version = "0.5.0"
+optional = true
+features = ["stats"]
 
 [build-dependencies]
 tonic-build = "0.9.1"

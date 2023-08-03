@@ -112,3 +112,14 @@ export LD_LIBRARY_PATH=${JAVA_HOME}/jre/lib/amd64/server:${LD_LIBRARY_PATH}
 export HADOOP_HOME=/path/to/hadoop
 export CLASSPATH=$(${HADOOP_HOME}/bin/hadoop classpath --glob)
 ``` 
+
+## Profiling
+### Heap profiling
+1. build with profile support
+    ```shell
+    cargo build --release --features memory-prof
+    ```
+2. Start with profile
+    ```shell
+    _RJEM_MALLOC_CONF=prof:true,prof_prefix:jeprof.out ./uniffle-worker
+    ```

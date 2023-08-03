@@ -11,9 +11,12 @@ env:
 
 jobs:
   build:
-
+    strategy:
+      matrix:
+        features:
+          - ""
+          - "memory-prof"
     runs-on: ubuntu-latest
-
     steps:
       - name: Set up JDK 8
         uses: actions/setup-java@v3
@@ -39,7 +42,15 @@ jobs:
           restore-keys: ${{ runner.os }}-cargo-
       - name: Build
         run: cargo build --verbose
+        if: ${{ matrix.features == '' }}
+      - name: Build with memory-prof
+        run: cargo build --verbose --features memory-prof
+        if: ${{ matrix.features == 'memory-prof' }}
       - name: Code style check
         run: cargo fmt --check
       - name: Run tests
         run: cargo test --verbose
+        if: ${{ matrix.features == '' }}
+      - name: Run tests with memory-prof
+        run: cargo test --verbose --features memory-prof
+        if: ${{ matrix.features == 'memory-prof' }}

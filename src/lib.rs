@@ -4,6 +4,7 @@ pub mod config;
 pub mod error;
 pub mod grpc;
 pub mod http;
+mod mem_allocator;
 pub mod metric;
 pub mod proto;
 pub mod readable_size;
