@@ -27,6 +27,10 @@ jobs:
         uses: taiki-e/install-action@v2
         with:
           tool: protoc@3.20.3
+
+      - name: Check license headers
+        uses: korandoru/hawkeye@v3.1.0
+
       - uses: actions/checkout@v3
       - name: Set up cargo cache
         uses: actions/cache@v3
