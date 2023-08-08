@@ -18,14 +18,77 @@
 use crate::config::MetricsConfig;
 use lazy_static::lazy_static;
 use log::{error, info};
-use prometheus::{labels, IntCounter, IntGauge, Registry};
+use prometheus::{labels, IntCounter, IntGauge, Registry, Histogram, HistogramOpts};
 use std::time::Duration;
+use once_cell::sync::Lazy;
+
+const DEFAULT_BUCKETS: &[f64; 16] = &[
+    0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 20.0, 40.0, 60.0, 80.0, 100.0
+];
+
+pub static REGISTRY: Lazy<Registry> = Lazy::new(Registry::new);
+
+pub static TOTAL_RECEIVED_DATA: Lazy<IntCounter> = Lazy::new(|| {
+    IntCounter::new("total_received_data", "Incoming Requests")
+        .expect("metric should be created")
+});
+
+pub static GRPC_GET_MEMORY_DATA_TRANSPORT_TIME: Lazy<Histogram> = Lazy::new(|| {
+    let opts = HistogramOpts::new("grpc_get_memory_data_transport_time", "none")
+        .buckets(Vec::from(DEFAULT_BUCKETS as &'static [f64]));
+
+    let histogram = Histogram::with_opts(opts).unwrap();
+    histogram
+});
+
+pub static GRPC_GET_MEMORY_DATA_PROCESS_TIME: Lazy<Histogram> = Lazy::new(|| {
+    let opts = HistogramOpts::new("grpc_get_memory_data_process_time", "none")
+        .buckets(Vec::from(DEFAULT_BUCKETS as &'static [f64]));
+    let histogram = Histogram::with_opts(opts).unwrap();
+    histogram
+});
+
+pub static GRPC_GET_LOCALFILE_DATA_TRANSPORT_TIME: Lazy<Histogram> = Lazy::new(|| {
+    let opts = HistogramOpts::new("grpc_get_localfile_data_transport_time", "none")
+        .buckets(Vec::from(DEFAULT_BUCKETS as &'static [f64]));
+
+    let histogram = Histogram::with_opts(opts).unwrap();
+    histogram
+});
+
+pub static GRPC_GET_LOCALFILE_DATA_PROCESS_TIME: Lazy<Histogram> = Lazy::new(|| {
+    let opts = HistogramOpts::new("grpc_get_localfile_data_process_time", "none")
+        .buckets(Vec::from(DEFAULT_BUCKETS as &'static [f64]));
+
+    let histogram = Histogram::with_opts(opts).unwrap();
+    histogram
+});
+
+pub static GRPC_SEND_DATA_TRANSPORT_TIME: Lazy<Histogram> = Lazy::new(|| {
+    let opts = HistogramOpts::new("grpc_send_data_transport_time", "none")
+        .buckets(Vec::from(DEFAULT_BUCKETS as &'static [f64]));
+
+    let histogram = Histogram::with_opts(opts).unwrap();
+    histogram
+});
+
+pub static GRPC_SEND_DATA_PROCESS_TIME: Lazy<Histogram> = Lazy::new(|| {
+    let opts = HistogramOpts::new("grpc_send_data_process_time", "none")
+        .buckets(Vec::from(DEFAULT_BUCKETS as &'static [f64]));
+
+    let histogram = Histogram::with_opts(opts).unwrap();
+    histogram
+});
+
+pub static GRPC_BUFFER_REQUIRE_PROCESS_TIME: Lazy<Histogram> = Lazy::new(|| {
+    let opts = HistogramOpts::new("grpc_buffer_require_process_time", "none")
+        .buckets(Vec::from(DEFAULT_BUCKETS as &'static [f64]));
+
+    let histogram = Histogram::with_opts(opts).unwrap();
+    histogram
+});
 
 lazy_static! {
-    pub static ref REGISTRY: Registry = Registry::new();
-    pub static ref TOTAL_RECEIVED_DATA: IntCounter =
-        IntCounter::new("total_received_data", "Incoming Requests")
-            .expect("metric should be created");
     pub static ref TOTAL_MEMORY_USED: IntCounter =
         IntCounter::new("total_memory_used", "Total memory used")
             .expect("metric should be created");
@@ -142,6 +205,28 @@ fn register_custom_metrics() {
     REGISTRY
         .register(Box::new(GAUGE_MEMORY_SPILL_TO_HDFS.clone()))
         .expect("memory_spill_to_hdfs must be registered");
+    REGISTRY
+        .register(Box::new(GRPC_BUFFER_REQUIRE_PROCESS_TIME.clone()))
+        .expect("grpc_buffer_require_process_time must be registered");
+    REGISTRY
+        .register(Box::new(GRPC_SEND_DATA_TRANSPORT_TIME.clone()))
+        .expect("grpc_send_data_transport_time must be registered");
+    REGISTRY
+        .register(Box::new(GRPC_SEND_DATA_PROCESS_TIME.clone()))
+        .expect("grpc_send_data_process_time must be registered");
+
+    REGISTRY
+        .register(Box::new(GRPC_GET_MEMORY_DATA_PROCESS_TIME.clone()))
+        .expect("grpc_get_memory_data_process_time must be registered");
+    REGISTRY
+        .register(Box::new(GRPC_GET_LOCALFILE_DATA_TRANSPORT_TIME.clone()))
+        .expect("grpc_get_localfile_data_transport_time must be registered");
+    REGISTRY
+        .register(Box::new(GRPC_GET_LOCALFILE_DATA_PROCESS_TIME.clone()))
+        .expect("grpc_get_localfile_data_process_time must be registered");
+    REGISTRY
+        .register(Box::new(GRPC_GET_MEMORY_DATA_TRANSPORT_TIME.clone()))
+        .expect("grpc_get_memory_data_transport_time must be registered");
 }
 
 pub fn configure_metric_service(metric_config: &Option<MetricsConfig>, worker_uid: String) -> bool {

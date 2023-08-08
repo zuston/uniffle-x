@@ -37,6 +37,8 @@ use bytes::{BufMut, BytesMut};
 use log::{debug, error, info, warn};
 
 use tonic::{Request, Response, Status};
+use crate::metric::{GRPC_BUFFER_REQUIRE_PROCESS_TIME, GRPC_GET_LOCALFILE_DATA_PROCESS_TIME, GRPC_GET_MEMORY_DATA_PROCESS_TIME, GRPC_GET_MEMORY_DATA_TRANSPORT_TIME, GRPC_SEND_DATA_PROCESS_TIME, GRPC_SEND_DATA_TRANSPORT_TIME};
+use crate::util;
 
 #[allow(non_camel_case_types)]
 enum StatusCode {
@@ -100,10 +102,14 @@ impl ShuffleServer for DefaultShuffleServer {
         &self,
         request: Request<SendShuffleDataRequest>,
     ) -> Result<Response<SendShuffleDataResponse>, Status> {
+        let timer = GRPC_SEND_DATA_PROCESS_TIME.start_timer();
         let req = request.into_inner();
         let app_id = req.app_id;
         let shuffle_id: i32 = req.shuffle_id;
         let ticket_id = req.require_buffer_id;
+
+
+        GRPC_SEND_DATA_TRANSPORT_TIME.observe((util::current_timestamp_sec() - req.timestamp as u64) as f64);
 
         let app_option = self.app_manager_ref.get_app(&app_id);
 
@@ -152,6 +158,8 @@ impl ShuffleServer for DefaultShuffleServer {
                 }));
             }
         }
+
+        timer.observe_duration();
 
         Ok(Response::new(SendShuffleDataResponse {
             status: StatusCode::SUCCESS.into(),
@@ -219,10 +227,13 @@ impl ShuffleServer for DefaultShuffleServer {
         &self,
         request: Request<GetLocalShuffleDataRequest>,
     ) -> Result<Response<GetLocalShuffleDataResponse>, Status> {
+        let timer = GRPC_GET_LOCALFILE_DATA_PROCESS_TIME.start_timer();
         let req = request.into_inner();
         let app_id = req.app_id;
         let shuffle_id: i32 = req.shuffle_id;
         let partition_id = req.partition_id;
+
+        GRPC_GET_MEMORY_DATA_TRANSPORT_TIME.observe((util::current_timestamp_sec() - req.timestamp as u64) as f64);
 
         let app = self.app_manager_ref.get_app(&app_id);
         if app.is_none() {
@@ -258,6 +269,8 @@ impl ShuffleServer for DefaultShuffleServer {
             }));
         }
 
+        timer.observe_duration();
+
         Ok(Response::new(GetLocalShuffleDataResponse {
             data: data_fetched_result.unwrap().from_local(),
             status: StatusCode::SUCCESS.into(),
@@ -269,10 +282,13 @@ impl ShuffleServer for DefaultShuffleServer {
         &self,
         request: Request<GetMemoryShuffleDataRequest>,
     ) -> Result<Response<GetMemoryShuffleDataResponse>, Status> {
+        let timer = GRPC_GET_MEMORY_DATA_PROCESS_TIME.start_timer();
         let req = request.into_inner();
         let app_id = req.app_id;
         let shuffle_id: i32 = req.shuffle_id;
         let partition_id = req.partition_id;
+
+        GRPC_GET_MEMORY_DATA_TRANSPORT_TIME.observe((util::current_timestamp_sec() - req.timestamp as u64) as f64);
 
         let app = self.app_manager_ref.get_app(&app_id);
         if app.is_none() {
@@ -314,6 +330,8 @@ impl ShuffleServer for DefaultShuffleServer {
         }
 
         let data = data_fetched_result.unwrap().from_memory();
+
+        timer.observe_duration();
 
         Ok(Response::new(GetMemoryShuffleDataResponse {
             shuffle_data_block_segments: data
@@ -496,6 +514,7 @@ impl ShuffleServer for DefaultShuffleServer {
         &self,
         request: Request<RequireBufferRequest>,
     ) -> Result<Response<RequireBufferResponse>, Status> {
+        let timer = GRPC_BUFFER_REQUIRE_PROCESS_TIME.start_timer();
         let req = request.into_inner();
         let app_id = req.app_id;
         let shuffle_id = req.shuffle_id;
@@ -529,6 +548,8 @@ impl ShuffleServer for DefaultShuffleServer {
             ),
             Err(err) => (StatusCode::NO_BUFFER, -1i64, format!("{:?}", err)),
         };
+
+        timer.observe_duration();
 
         Ok(Response::new(RequireBufferResponse {
             require_buffer_id: res.1,

@@ -84,6 +84,7 @@ pprof = { version = "0.11.1", features = [
     "protobuf",
 ] }
 tempfile = "3.7.0"
+once_cell = "1.18.0"
 
 # jemalloc related optional dependencies
 [dependencies.tikv-jemalloc-ctl]
