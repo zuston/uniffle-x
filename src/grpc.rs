@@ -126,14 +126,14 @@ impl ShuffleServer for DefaultShuffleServer {
 
         let app = app_option.unwrap();
 
-        if !app.is_buffer_ticket_exist(ticket_id) {
-            return Ok(Response::new(SendShuffleDataResponse {
-                status: StatusCode::NO_BUFFER.into(),
-                ret_msg: "No such buffer ticket id, it may be discarded due to timeout".to_string(),
-            }));
-        } else {
-            app.discard_tickets(ticket_id);
-        }
+        // if !app.is_buffer_ticket_exist(ticket_id) {
+        //     return Ok(Response::new(SendShuffleDataResponse {
+        //         status: StatusCode::NO_BUFFER.into(),
+        //         ret_msg: "No such buffer ticket id, it may be discarded due to timeout".to_string(),
+        //     }));
+        // } else {
+        //     app.discard_tickets(ticket_id);
+        // }
 
         let _blocks: Vec<PartitionedDataBlock> = vec![];
         for shuffle_data in req.shuffle_data {
