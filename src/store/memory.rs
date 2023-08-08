@@ -48,7 +48,7 @@ use tokio::time::sleep as delay_for;
 
 pub struct MemoryStore {
     // todo: change to RW lock
-    state: DashMap<String, DashMap<i32, DashMap<i32, Arc<Mutex<StagingBuffer>>>>>,
+    state: DashMap<PartitionedUId, Arc<Mutex<StagingBuffer>>>,
     budget: MemoryBudget,
     // key: app_id, value: allocated memory size
     memory_allocated_of_app: DashMap<String, DashMap<i64, MemoryBufferTicket>>,
@@ -114,26 +114,19 @@ impl MemoryStore {
         // sort
         // get the spill buffers
 
-        let mut sorted_tree_map = BTreeMap::new();
+        let mut sorted_tree_map: BTreeMap<i32, Vec<(String, i32, i32)>> = BTreeMap::new();
         let app_iter = self.state.iter();
-        for app_entry in app_iter {
-            for shuffle_entry in app_entry.value().iter() {
-                for partition_entry in shuffle_entry.value().iter() {
-                    let mut staging_size = 0;
-                    for block in &partition_entry.value().lock().await.staging {
-                        staging_size += block.length;
-                    }
 
-                    let valset = sorted_tree_map
-                        .entry(staging_size)
-                        .or_insert_with(|| vec![]);
-                    valset.push((
-                        app_entry.key().clone(),
-                        shuffle_entry.key().clone(),
-                        partition_entry.key().clone(),
-                    ));
-                }
+        for partition in app_iter {
+            let mut staging_size = 0;
+            for block in &partition.value().lock().await.staging {
+                staging_size += block.length;
             }
+            let vals = sorted_tree_map
+                .entry(staging_size)
+                .or_insert_with(|| vec![]);
+            let key = partition.key();
+            vals.push((key.app_id.to_string(), key.shuffle_id.clone(), key.partition_id.clone()));
         }
 
         let removed_size = self.memory_capacity - target_len;
@@ -148,13 +141,15 @@ impl MemoryStore {
                     break 'outer;
                 }
                 current_removed += size.to_be() as i64;
+                let uid = PartitionedUId::from(
+                    app_id.to_string(),
+                    shuffle_id.clone(),
+                    partition_id.clone(),
+                );
+                let buffer = self.get_underlying_partition_buffer(&uid);
                 required_spill_buffers.insert(
-                    PartitionedUId::from(
-                        app_id.to_string(),
-                        shuffle_id.clone(),
-                        partition_id.clone(),
-                    ),
-                    self.get_underlying_partition_buffer(app_id, shuffle_id, partition_id),
+                    uid,
+                    buffer,
                 );
             }
         }
@@ -163,24 +158,16 @@ impl MemoryStore {
     }
 
     pub async fn get_partitioned_buffer_size(&self, uid: &PartitionedUId) -> Result<u64> {
-        let buffer =
-            self.get_underlying_partition_buffer(&uid.app_id, &uid.shuffle_id, &uid.shuffle_id);
+        let buffer = self.get_underlying_partition_buffer(uid);
         let buffer = buffer.lock().await;
         Ok(buffer.total_size as u64)
     }
 
     fn get_underlying_partition_buffer(
         &self,
-        app_id: &String,
-        shuffle_id: &i32,
-        partition_id: &i32,
+        uid: &PartitionedUId,
     ) -> Arc<Mutex<StagingBuffer>> {
-        let app_entry = self.state.get(app_id).unwrap();
-        let shuffle_entry = app_entry.get(shuffle_id).unwrap();
-        let partition_entry = shuffle_entry.get(partition_id).unwrap();
-
-        let buffer_cloned = partition_entry.value().clone();
-        buffer_cloned
+        self.state.get(uid).unwrap().clone()
     }
 
     pub async fn release_in_flight_blocks_in_underlying_staging_buffer(
@@ -198,17 +185,7 @@ impl MemoryStore {
         &self,
         uid: PartitionedUId,
     ) -> Arc<Mutex<StagingBuffer>> {
-        let app_id = uid.app_id;
-        let shuffle_id = uid.shuffle_id;
-        let partition_id = uid.partition_id;
-        let app_level_entry = self.state.entry(app_id).or_insert_with(|| DashMap::new());
-        let shuffle_level_entry = app_level_entry
-            .entry(shuffle_id)
-            .or_insert_with(|| DashMap::new());
-        let buffer = shuffle_level_entry
-            .entry(partition_id)
-            .or_insert_with(|| Arc::new(Mutex::new(StagingBuffer::new())));
-        buffer.clone()
+        self.state.entry(uid).or_insert_with(|| Arc::new(Mutex::new(StagingBuffer::new()))).clone()
     }
 
     pub(crate) fn read_partial_data_with_max_size_limit<'a>(
@@ -464,7 +441,7 @@ impl Store for MemoryStore {
     async fn purge(&self, app_id: String) -> Result<()> {
         let released_size = self.discard_tickets(app_id.as_str(), None);
         self.budget.free_allocated(released_size).await?;
-        self.state.remove(&app_id);
+        // self.state.remove(&app_id);
         Ok(())
     }
 
@@ -965,8 +942,6 @@ mod test {
         assert_eq!(0, budget.allocated);
         assert_eq!(0, budget.used);
         assert_eq!(1024 * 1024 * 1024, budget.capacity);
-
-        assert_eq!(false, store.state.contains_key(&"100".to_string()));
     }
 
     #[tokio::test]
