@@ -18,19 +18,18 @@
 use crate::config::MetricsConfig;
 use lazy_static::lazy_static;
 use log::{error, info};
-use prometheus::{labels, IntCounter, IntGauge, Registry, Histogram, HistogramOpts};
-use std::time::Duration;
 use once_cell::sync::Lazy;
+use prometheus::{labels, Histogram, HistogramOpts, IntCounter, IntGauge, Registry};
+use std::time::Duration;
 
 const DEFAULT_BUCKETS: &[f64; 16] = &[
-    0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 20.0, 40.0, 60.0, 80.0, 100.0
+    0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 20.0, 40.0, 60.0, 80.0, 100.0,
 ];
 
 pub static REGISTRY: Lazy<Registry> = Lazy::new(Registry::new);
 
 pub static TOTAL_RECEIVED_DATA: Lazy<IntCounter> = Lazy::new(|| {
-    IntCounter::new("total_received_data", "Incoming Requests")
-        .expect("metric should be created")
+    IntCounter::new("total_received_data", "Incoming Requests").expect("metric should be created")
 });
 
 pub static GRPC_GET_MEMORY_DATA_TRANSPORT_TIME: Lazy<Histogram> = Lazy::new(|| {
