@@ -37,13 +37,13 @@ use crate::store::{Persistent, RequireBufferResponse, ResponseData, ResponseData
 use anyhow::{anyhow, Result};
 
 use async_trait::async_trait;
-use await_tree::Registry;
 use log::{debug, error};
 use prometheus::core::{Atomic, AtomicU64};
 use std::any::Any;
 
 use std::collections::VecDeque;
 
+use await_tree::InstrumentAwait;
 use std::str::FromStr;
 use std::sync::Arc;
 
@@ -293,17 +293,16 @@ impl Store for HybridStore {
             return;
         }
 
-        let await_tree_registry: Arc<Mutex<Registry<u64>>> = AWAIT_TREE_REGISTRY.clone();
+        let await_tree_registry = AWAIT_TREE_REGISTRY.clone();
 
         let store = self.clone();
         let concurrency_limiter =
             Arc::new(Semaphore::new(store.memory_spill_max_concurrency as usize));
         tokio::spawn(async move {
-            let mut counter = 0u64;
             while let Ok(message) = store.memory_spill_recv.recv().await {
-                let mut registry = await_tree_registry.lock().await;
-                let await_root = registry.register(counter, format!("actor: {}", counter));
-                counter += 1;
+                let await_root = await_tree_registry
+                    .register(format!("hot->warm flush."))
+                    .await;
 
                 // using acquire_owned(), refer to https://github.com/tokio-rs/tokio/issues/1998
                 let concurrency_guarder =
@@ -339,12 +338,20 @@ impl Store for HybridStore {
     async fn insert(&self, ctx: WritingViewContext) -> Result<(), WorkerError> {
         let uid = ctx.uid.clone();
 
-        let insert_result = self.hot_store.insert(ctx).await;
+        let insert_result = self
+            .hot_store
+            .insert(ctx)
+            .instrument_await(format!("inserting data into memory. uid: {:?}", &uid))
+            .await;
         if self.is_memory_only() {
             return insert_result;
         }
 
-        let _spill_lock = self.memory_spill_lock.lock().await;
+        let _spill_lock = self
+            .memory_spill_lock
+            .lock()
+            .instrument_await(format!("waiting memory spill lock. uid: {:?}", &uid))
+            .await;
 
         // single buffer flush
         let buffer = self
@@ -370,7 +377,11 @@ impl Store for HybridStore {
         if used_ratio > self.config.memory_spill_high_watermark {
             let target_size = (self.hot_store.get_capacity()? as f32
                 * self.config.memory_spill_low_watermark) as i64;
-            let buffers = self.hot_store.get_required_spill_buffer(target_size).await;
+            let buffers = self
+                .hot_store
+                .get_required_spill_buffer(target_size)
+                .instrument_await(format!("getting spill buffers. uid: {:?}", &uid))
+                .await;
 
             for (partition_id, buffer) in buffers {
                 let mut buffer_inner = buffer.lock().await;
@@ -402,7 +413,11 @@ impl Store for HybridStore {
         &self,
         ctx: RequireBufferContext,
     ) -> Result<RequireBufferResponse, WorkerError> {
-        self.hot_store.require_buffer(ctx).await
+        let uid = &ctx.uid.clone();
+        self.hot_store
+            .require_buffer(ctx)
+            .instrument_await(format!("requiring buffers. uid: {:?}", uid))
+            .await
     }
 
     async fn purge(&self, app_id: String) -> Result<()> {

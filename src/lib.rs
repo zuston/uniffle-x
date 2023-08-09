@@ -15,6 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#![feature(impl_trait_in_assoc_type)]
+
 pub mod app;
 pub mod await_tree;
 pub mod config;

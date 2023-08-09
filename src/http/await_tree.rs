@@ -31,7 +31,7 @@ impl Default for AwaitTreeHandler {
 impl Handler for AwaitTreeHandler {
     fn get_route_method(&self) -> RouteMethod {
         get(make(|_| async {
-            let registry_cloned = AWAIT_TREE_REGISTRY.clone();
+            let registry_cloned = AWAIT_TREE_REGISTRY.clone().get_inner();
             let registry = registry_cloned.lock().await;
             let mut dynamic_string = String::new();
             for (_, tree) in registry.iter() {
