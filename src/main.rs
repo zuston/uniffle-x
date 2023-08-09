@@ -15,11 +15,12 @@
 // specific language governing permissions and limitations
 // under the License.
 
-extern crate core;
+#![feature(impl_trait_in_assoc_type)]
 
 use crate::app::{AppManager, AppManagerRef};
 use crate::config::{Config, LogConfig, RotationConfig};
-use crate::grpc::DefaultShuffleServer;
+use crate::grpc::grpc_middleware::AwaitTreeMiddlewareLayer;
+use crate::grpc::{DefaultShuffleServer, MAX_CONNECTION_WINDOW_SIZE, STREAM_WINDOW_SIZE};
 use crate::http::{HTTPServer, HTTP_SERVICE};
 use crate::metric::configure_metric_service;
 use crate::proto::uniffle::coordinator_server_client::CoordinatorServerClient;
@@ -29,6 +30,7 @@ use crate::util::{gen_worker_uid, get_local_ip};
 use anyhow::Result;
 use log::info;
 
+use crate::await_tree::AWAIT_TREE_REGISTRY;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::time::Duration;
 use tonic::transport::{Channel, Server};
@@ -192,7 +194,16 @@ async fn main() -> Result<()> {
     let service = ShuffleServerServer::new(shuffle_server)
         .max_decoding_message_size(usize::MAX)
         .max_encoding_message_size(usize::MAX);
-    Server::builder().add_service(service).serve(addr).await?;
+    Server::builder()
+        .initial_connection_window_size(MAX_CONNECTION_WINDOW_SIZE)
+        .initial_stream_window_size(STREAM_WINDOW_SIZE)
+        .tcp_nodelay(true)
+        .layer(AwaitTreeMiddlewareLayer::new_optional(Some(
+            AWAIT_TREE_REGISTRY.clone(),
+        )))
+        .add_service(service)
+        .serve(addr)
+        .await?;
 
     Ok(())
 }
