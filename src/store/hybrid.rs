@@ -37,7 +37,7 @@ use crate::store::{Persistent, RequireBufferResponse, ResponseData, ResponseData
 use anyhow::{anyhow, Result};
 
 use async_trait::async_trait;
-use await_tree::Registry;
+use await_tree::{InstrumentAwait, Registry};
 use log::{debug, error};
 use prometheus::core::{Atomic, AtomicU64};
 use std::any::Any;
@@ -339,18 +339,24 @@ impl Store for HybridStore {
     async fn insert(&self, ctx: WritingViewContext) -> Result<(), WorkerError> {
         let uid = ctx.uid.clone();
 
-        let insert_result = self.hot_store.insert(ctx).await;
+        let insert_result = self.hot_store.insert(ctx)
+            .instrument_await(format!("insert data into memory of uid: {:?}", &uid))
+            .await;
         if self.is_memory_only() {
             return insert_result;
         }
 
-        let _spill_lock = self.memory_spill_lock.lock().await;
+        let _spill_lock = self.memory_spill_lock.lock()
+            .instrument_await(format!("spill lock wait of uid: {:?}", &uid))
+            .await;
 
         // single buffer flush
         let buffer = self
             .hot_store
             .get_or_create_underlying_staging_buffer(uid.clone());
-        let mut buffer_inner = buffer.lock().await;
+        let mut buffer_inner = buffer.lock()
+            .instrument_await(format!("wait single buffer lock to flush for uid: {:?}", &uid))
+            .await;
         let max_spill_size = &self.config.memory_single_buffer_max_spill_size;
         if max_spill_size.is_some() {
             match ReadableSize::from_str(max_spill_size.clone().unwrap().as_str()) {
@@ -370,11 +376,14 @@ impl Store for HybridStore {
         if used_ratio > self.config.memory_spill_high_watermark {
             let target_size = (self.hot_store.get_capacity()? as f32
                 * self.config.memory_spill_low_watermark) as i64;
-            let buffers = self.hot_store.get_required_spill_buffer(target_size).await;
+            let buffers = self.hot_store.get_required_spill_buffer(target_size)
+                .instrument_await(format!("get required spill buffers of uid: {:?}", &uid))
+                .await;
 
             for (partition_id, buffer) in buffers {
                 let mut buffer_inner = buffer.lock().await;
                 self.make_memory_buffer_flush(&mut buffer_inner, partition_id)
+                    .instrument_await(format!("send spill buffers to queue of uid: {:?}", &uid))
                     .await?;
             }
             debug!("Trigger spilling in background....");

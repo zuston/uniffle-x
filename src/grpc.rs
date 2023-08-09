@@ -110,7 +110,7 @@ impl ShuffleServer for DefaultShuffleServer {
         let req = request.into_inner();
         let app_id = req.app_id;
         let shuffle_id: i32 = req.shuffle_id;
-        let ticket_id = req.require_buffer_id;
+        // let ticket_id = req.require_buffer_id;
 
         GRPC_SEND_DATA_TRANSPORT_TIME
             .observe((util::current_timestamp_sec() - req.timestamp as u64) as f64);

@@ -47,10 +47,12 @@ use std::hash::{Hash, Hasher};
 use std::str::FromStr;
 
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc};
 use std::time::Duration;
+use await_tree::Registry;
 
-use tokio::sync::RwLock;
+use tokio::sync::{Mutex, RwLock};
+use crate::await_tree::AWAIT_TREE_REGISTRY;
 
 #[derive(Debug, Clone)]
 enum DataDistribution {
@@ -88,6 +90,8 @@ pub struct App {
     bitmap_of_blocks: DashMap<i32, DashMap<i32, PartitionedMeta>>,
     huge_partition_marked_threshold: Option<u64>,
     huge_partition_memory_max_available_size: Option<u64>,
+    await_tree_registry: Arc<Mutex<Registry<u64>>>,
+    idx: AtomicU64
 }
 
 #[derive(Clone)]
@@ -153,6 +157,8 @@ impl App {
             bitmap_of_blocks: DashMap::new(),
             huge_partition_marked_threshold,
             huge_partition_memory_max_available_size,
+            await_tree_registry: AWAIT_TREE_REGISTRY.clone(),
+            idx: Default::default(),
         }
     }
 
@@ -180,7 +186,12 @@ impl App {
             .await?;
         TOTAL_RECEIVED_DATA.inc_by(len as u64);
 
-        self.store.insert(ctx).await
+        let root = self.await_tree_registry.clone().lock().await.register(self.idx.fetch_add(1, Ordering::SeqCst), "app insert root");
+
+        let store = self.store.clone();
+        root.instrument(async move {
+            store.insert(ctx).await
+        }).await
     }
 
     pub async fn select(&self, ctx: ReadingViewContext) -> Result<ResponseData, WorkerError> {
