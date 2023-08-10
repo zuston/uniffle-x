@@ -35,6 +35,7 @@ use crate::store::{PartitionedData, PartitionedDataBlock, ResponseDataIndex};
 use bytes::{BufMut, BytesMut};
 
 use log::{debug, error, info, warn};
+use tokio::time::Instant;
 
 use crate::metric::{
     GRPC_BUFFER_REQUIRE_PROCESS_TIME, GRPC_GET_LOCALFILE_DATA_PROCESS_TIME,
@@ -142,8 +143,15 @@ impl ShuffleServer for DefaultShuffleServer {
             app.discard_tickets(ticket_id);
         }
 
+        let start = Instant::now();
+        let mut max_single_loop = 0u128;
+        let mut idx = 0;
         let _blocks: Vec<PartitionedDataBlock> = vec![];
         for shuffle_data in req.shuffle_data {
+            idx += 1;
+
+            let now = Instant::now();
+
             let data: PartitionedData = shuffle_data.into();
             let partitioned_blocks = data.blocks;
             let ctx = WritingViewContext {
@@ -168,8 +176,14 @@ impl ShuffleServer for DefaultShuffleServer {
                     ret_msg: err,
                 }));
             }
+
+            let execution_time = now.elapsed().as_millis();
+            if execution_time > max_single_loop {
+                max_single_loop = execution_time;
+            }
         }
 
+        info!("execute: {} ms. total loop: {}, max_single_loop: {}", start.elapsed().as_millis(), idx, max_single_loop);
         timer.observe_duration();
 
         Ok(Response::new(SendShuffleDataResponse {
