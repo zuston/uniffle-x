@@ -31,9 +31,11 @@ use crate::metric::{
 use crate::readable_size::ReadableSize;
 use crate::store::hdfs::HdfsStore;
 use crate::store::localfile::LocalFileStore;
-use crate::store::memory::{MemorySnapshot, MemoryStore, StagingBuffer};
+use crate::store::memory::{MemorySnapshot, MemoryStore};
 
-use crate::store::{Persistent, RequireBufferResponse, ResponseData, ResponseDataIndex, Store};
+use crate::store::{
+    PartitionedDataBlock, Persistent, RequireBufferResponse, ResponseData, ResponseDataIndex, Store,
+};
 use anyhow::{anyhow, Result};
 
 use async_trait::async_trait;
@@ -47,7 +49,7 @@ use await_tree::InstrumentAwait;
 use std::str::FromStr;
 use std::sync::Arc;
 
-use tokio::sync::{Mutex, MutexGuard, Semaphore};
+use tokio::sync::{Mutex, Semaphore};
 
 trait PersistentStore: Store + Persistent + Send + Sync {}
 impl PersistentStore for LocalFileStore {}
@@ -255,11 +257,10 @@ impl HybridStore {
 
     async fn make_memory_buffer_flush(
         &self,
-        buffer_inner: &mut MutexGuard<'_, StagingBuffer>,
+        in_flight_uid: i64,
+        blocks: Vec<PartitionedDataBlock>,
         uid: PartitionedUId,
     ) -> Result<()> {
-        let (in_flight_uid, blocks) = buffer_inner.migrate_staging_to_in_flight()?;
-
         let writing_ctx = WritingViewContext {
             uid,
             data_blocks: blocks,
@@ -347,49 +348,45 @@ impl Store for HybridStore {
             return insert_result;
         }
 
-        let _spill_lock = self
-            .memory_spill_lock
-            .lock()
-            .instrument_await(format!("waiting memory spill lock. uid: {:?}", &uid))
-            .await;
-
-        // single buffer flush
-        let buffer = self
-            .hot_store
-            .get_or_create_underlying_staging_buffer(uid.clone());
-        let mut buffer_inner = buffer.lock().await;
-        let max_spill_size = &self.config.memory_single_buffer_max_spill_size;
-        if max_spill_size.is_some() {
-            match ReadableSize::from_str(max_spill_size.clone().unwrap().as_str()) {
-                Ok(size) => {
-                    if size.as_bytes() < buffer_inner.get_staging_size()? as u64 {
-                        self.make_memory_buffer_flush(&mut buffer_inner, uid.clone())
-                            .await?;
-                    }
-                }
-                _ => {}
-            }
-        }
-        drop(buffer_inner);
-
-        // watermark flush
-        let used_ratio = self.hot_store.memory_usage_ratio().await;
-        if used_ratio > self.config.memory_spill_high_watermark {
-            let target_size = (self.hot_store.get_capacity()? as f32
-                * self.config.memory_spill_low_watermark) as i64;
-            let buffers = self
-                .hot_store
-                .get_required_spill_buffer(target_size)
-                .instrument_await(format!("getting spill buffers. uid: {:?}", &uid))
-                .await;
-
-            for (partition_id, buffer) in buffers {
+        if let Some(max_spill_size) = &self.config.memory_single_buffer_max_spill_size {
+            // single buffer flush
+            if let Ok(size) = ReadableSize::from_str(max_spill_size.as_str()) {
+                let buffer = self
+                    .hot_store
+                    .get_or_create_underlying_staging_buffer(uid.clone());
                 let mut buffer_inner = buffer.lock().await;
-                self.make_memory_buffer_flush(&mut buffer_inner, partition_id)
-                    .await?;
+                if size.as_bytes() < buffer_inner.get_staging_size()? as u64 {
+                    let (in_flight_uid, blocks) = buffer_inner.migrate_staging_to_in_flight()?;
+                    self.make_memory_buffer_flush(in_flight_uid, blocks, uid.clone())
+                        .await?;
+                }
             }
-            debug!("Trigger spilling in background....");
         }
+
+        if let Ok(_lock) = self.memory_spill_lock.try_lock() {
+            // watermark flush
+            let used_ratio = self.hot_store.memory_usage_ratio().await;
+            if used_ratio > self.config.memory_spill_high_watermark {
+                let target_size = (self.hot_store.get_capacity()? as f32
+                    * self.config.memory_spill_low_watermark)
+                    as i64;
+                let buffers = self
+                    .hot_store
+                    .get_required_spill_buffer(target_size)
+                    .instrument_await(format!("getting spill buffers. uid: {:?}", &uid))
+                    .await;
+
+                for (partition_id, buffer) in buffers {
+                    let mut buffer_inner = buffer.lock().await;
+                    let (in_flight_uid, blocks) = buffer_inner.migrate_staging_to_in_flight()?;
+                    drop(buffer_inner);
+                    self.make_memory_buffer_flush(in_flight_uid, blocks, partition_id)
+                        .await?;
+                }
+                debug!("Trigger spilling in background....");
+            }
+        }
+
         insert_result
     }
 
