@@ -347,49 +347,46 @@ impl Store for HybridStore {
             return insert_result;
         }
 
-        let _spill_lock = self
-            .memory_spill_lock
-            .lock()
-            .instrument_await(format!("waiting memory spill lock. uid: {:?}", &uid))
-            .await;
-
         // single buffer flush
-        let buffer = self
-            .hot_store
-            .get_or_create_underlying_staging_buffer(uid.clone());
-        let mut buffer_inner = buffer.lock().await;
-        let max_spill_size = &self.config.memory_single_buffer_max_spill_size;
-        if max_spill_size.is_some() {
-            match ReadableSize::from_str(max_spill_size.clone().unwrap().as_str()) {
-                Ok(size) => {
-                    if size.as_bytes() < buffer_inner.get_staging_size()? as u64 {
-                        self.make_memory_buffer_flush(&mut buffer_inner, uid.clone())
-                            .await?;
-                    }
+        // let buffer = self
+        //     .hot_store
+        //     .get_or_create_underlying_staging_buffer(uid.clone());
+        // let mut buffer_inner = buffer.lock().await;
+        // let max_spill_size = &self.config.memory_single_buffer_max_spill_size;
+        // if max_spill_size.is_some() {
+        //     match ReadableSize::from_str(max_spill_size.clone().unwrap().as_str()) {
+        //         Ok(size) => {
+        //             if size.as_bytes() < buffer_inner.get_staging_size()? as u64 {
+        //                 self.make_memory_buffer_flush(&mut buffer_inner, uid.clone())
+        //                     .await?;
+        //             }
+        //         }
+        //         _ => {}
+        //     }
+        // }
+        // drop(buffer_inner);
+
+        if let Ok(_lock) = self.memory_spill_lock.try_lock() {
+            // watermark flush
+            let used_ratio = self.hot_store.memory_usage_ratio().await;
+            if used_ratio > self.config.memory_spill_high_watermark {
+                let target_size = (self.hot_store.get_capacity()? as f32
+                    * self.config.memory_spill_low_watermark) as i64;
+                let buffers = self
+                    .hot_store
+                    .get_required_spill_buffer(target_size)
+                    .instrument_await(format!("getting spill buffers. uid: {:?}", &uid))
+                    .await;
+
+                for (partition_id, buffer) in buffers {
+                    let mut buffer_inner = buffer.lock().await;
+                    self.make_memory_buffer_flush(&mut buffer_inner, partition_id)
+                        .await?;
                 }
-                _ => {}
+                debug!("Trigger spilling in background....");
             }
         }
-        drop(buffer_inner);
 
-        // watermark flush
-        let used_ratio = self.hot_store.memory_usage_ratio().await;
-        if used_ratio > self.config.memory_spill_high_watermark {
-            let target_size = (self.hot_store.get_capacity()? as f32
-                * self.config.memory_spill_low_watermark) as i64;
-            let buffers = self
-                .hot_store
-                .get_required_spill_buffer(target_size)
-                .instrument_await(format!("getting spill buffers. uid: {:?}", &uid))
-                .await;
-
-            for (partition_id, buffer) in buffers {
-                let mut buffer_inner = buffer.lock().await;
-                self.make_memory_buffer_flush(&mut buffer_inner, partition_id)
-                    .await?;
-            }
-            debug!("Trigger spilling in background....");
-        }
         insert_result
     }
 
