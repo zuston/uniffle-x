@@ -44,7 +44,8 @@ use log::error;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::Mutex;
-use tokio::time::{Instant, sleep as delay_for};
+use tokio::time::{sleep as delay_for};
+use crate::store::mem::InstrumentAwait;
 
 pub struct MemoryStore {
     // todo: change to RW lock
@@ -311,24 +312,27 @@ impl Store for MemoryStore {
     async fn insert(&self, ctx: WritingViewContext) -> Result<(), WorkerError> {
         let uid = ctx.uid;
 
-        let timer = Instant::now();
+        // let timer = Instant::now();
         let buffer = self.get_or_create_underlying_staging_buffer(uid.clone());
         let mut buffer_guarded = buffer.lock()
+            .instrument_await("getting buffer lock")
             .await;
-        info!("buffer lock cost {} ms of uid: {:?}", timer.elapsed().as_millis(), &uid);
+        // info!("buffer lock cost {} ms of uid: {:?}", timer.elapsed().as_millis(), &uid);
 
-        let timer = Instant::now();
+        // let timer = Instant::now();
         let blocks = ctx.data_blocks;
         let inserted_size = buffer_guarded.add(blocks)?;
-        info!("inserting cost {} ms of uid: {:?}", timer.elapsed().as_millis(), &uid);
+        // info!("inserting cost {} ms of uid: {:?}", timer.elapsed().as_millis(), &uid);
 
-        let timer = Instant::now();
-        self.budget.allocated_to_used(inserted_size).await?;
-        info!("allocated size -> used cost {} ms of uid: {:?}", timer.elapsed().as_millis(), &uid);
+        // let timer = Instant::now();
+        self.budget.allocated_to_used(inserted_size)
+            .instrument_await("allocated => used")
+            .await?;
+        // info!("allocated size -> used cost {} ms of uid: {:?}", timer.elapsed().as_millis(), &uid);
 
-        let timer = Instant::now();
+        // let timer = Instant::now();
         TOTAL_MEMORY_USED.inc_by(inserted_size as u64);
-        info!("metrics inc cost {} msof uid: {:?}", timer.elapsed().as_millis(), &uid);
+        // info!("metrics inc cost {} msof uid: {:?}", timer.elapsed().as_millis(), &uid);
         Ok(())
     }
 

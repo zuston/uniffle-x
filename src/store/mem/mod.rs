@@ -15,6 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
+pub use await_tree::InstrumentAwait;
+
 pub struct MemoryBufferTicket {
     id: i64,
     created_time: u64,
