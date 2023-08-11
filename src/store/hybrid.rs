@@ -345,10 +345,12 @@ impl Store for HybridStore {
             .insert(ctx)
             .instrument_await(format!("inserting data into memory. uid: {:?}", &uid))
             .await;
-        if self.is_memory_only() {
-            return insert_result;
-        }
+
         info!("inserted cost: {} ms of uid: {:?}", timer.elapsed().as_millis(), &uid);
+
+        // if self.is_memory_only() {
+        //     return insert_result;
+        // }
 
         // single buffer flush
         // let buffer = self
@@ -369,32 +371,32 @@ impl Store for HybridStore {
         // }
         // drop(buffer_inner);
 
-        let t1 = Instant::now();
-        if let Ok(_lock) = self.memory_spill_lock.try_lock() {
-            info!("get spill lock cost: {} ms of uid: {:?}", t1.elapsed().as_millis(), &uid);
-            let timer = Instant::now();
-            // watermark flush
-            let used_ratio = self.hot_store.memory_usage_ratio().await;
-            if used_ratio > self.config.memory_spill_high_watermark {
-                let target_size = (self.hot_store.get_capacity()? as f32
-                    * self.config.memory_spill_low_watermark) as i64;
-                let buffers = self
-                    .hot_store
-                    .get_required_spill_buffer(target_size)
-                    .instrument_await(format!("getting spill buffers. uid: {:?}", &uid))
-                    .await;
-
-                for (partition_id, buffer) in buffers {
-                    let mut buffer_inner = buffer.lock().await;
-                    self.make_memory_buffer_flush(&mut buffer_inner, partition_id)
-                        .await?;
-                }
-                debug!("Trigger spilling in background....");
-            }
-            info!("spill trigger costs : {} ms", timer.elapsed().as_millis());
-        } else {
-            info!("not get the lock cost: {} ms", t1.elapsed().as_millis());
-        }
+        // let t1 = Instant::now();
+        // if let Ok(_lock) = self.memory_spill_lock.try_lock() {
+        //     info!("get spill lock cost: {} ms of uid: {:?}", t1.elapsed().as_millis(), &uid);
+        //     let timer = Instant::now();
+        //     // watermark flush
+        //     let used_ratio = self.hot_store.memory_usage_ratio().await;
+        //     if used_ratio > self.config.memory_spill_high_watermark {
+        //         let target_size = (self.hot_store.get_capacity()? as f32
+        //             * self.config.memory_spill_low_watermark) as i64;
+        //         let buffers = self
+        //             .hot_store
+        //             .get_required_spill_buffer(target_size)
+        //             .instrument_await(format!("getting spill buffers. uid: {:?}", &uid))
+        //             .await;
+        //
+        //         for (partition_id, buffer) in buffers {
+        //             let mut buffer_inner = buffer.lock().await;
+        //             self.make_memory_buffer_flush(&mut buffer_inner, partition_id)
+        //                 .await?;
+        //         }
+        //         debug!("Trigger spilling in background....");
+        //     }
+        //     info!("spill trigger costs : {} ms", timer.elapsed().as_millis());
+        // } else {
+        //     info!("not get the lock cost: {} ms", t1.elapsed().as_millis());
+        // }
 
         insert_result
     }
