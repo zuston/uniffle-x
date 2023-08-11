@@ -39,13 +39,13 @@ use std::collections::{BTreeMap, HashMap};
 
 use std::str::FromStr;
 
+use crate::store::mem::InstrumentAwait;
 use crate::store::mem::MemoryBufferTicket;
 use log::error;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::Mutex;
-use tokio::time::{sleep as delay_for};
-use crate::store::mem::InstrumentAwait;
+use tokio::time::sleep as delay_for;
 
 pub struct MemoryStore {
     // todo: change to RW lock
@@ -116,7 +116,7 @@ impl MemoryStore {
         // get the spill buffers
 
         let mut sorted_tree_map = BTreeMap::new();
-        
+
         let buffers = self.state.clone().into_read_only();
         for buffer in buffers.iter() {
             let staging_size = buffer.1.lock().await.staging_size;
@@ -126,7 +126,7 @@ impl MemoryStore {
             let key = buffer.0;
             valset.push(key);
         }
-        
+
         // let app_iter = self.state.iter();
         // let read_only = self.state.into_read_only();
         // let v = read_only.iter();
@@ -165,10 +165,7 @@ impl MemoryStore {
                 let partition_uid = (*pid).clone();
 
                 let buffer = self.get_underlying_partition_buffer(&partition_uid);
-                required_spill_buffers.insert(
-                    partition_uid,
-                    buffer
-                );
+                required_spill_buffers.insert(partition_uid, buffer);
             }
         }
 
@@ -200,7 +197,9 @@ impl MemoryStore {
         &self,
         uid: PartitionedUId,
     ) -> Arc<Mutex<StagingBuffer>> {
-        let buffer = self.state.entry(uid)
+        let buffer = self
+            .state
+            .entry(uid)
             .or_insert_with(|| Arc::new(Mutex::new(StagingBuffer::new())));
         buffer.clone()
     }
@@ -314,9 +313,7 @@ impl Store for MemoryStore {
 
         // let timer = Instant::now();
         let buffer = self.get_or_create_underlying_staging_buffer(uid.clone());
-        let mut buffer_guarded = buffer.lock()
-            .instrument_await("getting buffer lock")
-            .await;
+        let mut buffer_guarded = buffer.lock().instrument_await("getting buffer lock").await;
         // info!("buffer lock cost {} ms of uid: {:?}", timer.elapsed().as_millis(), &uid);
 
         // let timer = Instant::now();
@@ -324,8 +321,11 @@ impl Store for MemoryStore {
         let inserted_size = buffer_guarded.add(blocks)?;
         // info!("inserting cost {} ms of uid: {:?}", timer.elapsed().as_millis(), &uid);
 
+        drop(buffer_guarded);
+
         // let timer = Instant::now();
-        self.budget.allocated_to_used(inserted_size)
+        self.budget
+            .allocated_to_used(inserted_size)
             .instrument_await("allocated => used")
             .await?;
         // info!("allocated size -> used cost {} ms of uid: {:?}", timer.elapsed().as_millis(), &uid);
