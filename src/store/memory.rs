@@ -45,6 +45,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::Mutex;
 use tokio::time::sleep as delay_for;
+use crate::store::mem::InstrumentAwait;
 
 pub struct MemoryStore {
     // todo: change to RW lock
@@ -318,11 +319,15 @@ impl Store for MemoryStore {
     async fn insert(&self, ctx: WritingViewContext) -> Result<(), WorkerError> {
         let uid = ctx.uid;
         let buffer = self.get_or_create_underlying_staging_buffer(uid.clone());
-        let mut buffer_guarded = buffer.lock().await;
+        let mut buffer_guarded = buffer.lock()
+            .instrument_await("getting buffer lock to insert data into memory store")
+            .await;
 
         let blocks = ctx.data_blocks;
         let inserted_size = buffer_guarded.add(blocks)?;
-        self.budget.allocated_to_used(inserted_size).await?;
+        self.budget.allocated_to_used(inserted_size)
+            .instrument_await("calculating memory budget [allocated -> used]")
+            .await?;
 
         TOTAL_MEMORY_USED.inc_by(inserted_size as u64);
 

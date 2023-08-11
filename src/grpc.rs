@@ -15,6 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
+use await_tree::InstrumentAwait;
 use crate::app::{
     AppManagerRef, GetBlocksContext, PartitionedUId, ReadingIndexViewContext, ReadingOptions,
     ReadingViewContext, ReportBlocksContext, RequireBufferContext, WritingViewContext,
@@ -146,16 +147,19 @@ impl ShuffleServer for DefaultShuffleServer {
         for shuffle_data in req.shuffle_data {
             let data: PartitionedData = shuffle_data.into();
             let partitioned_blocks = data.blocks;
+            let pid = PartitionedUId {
+                app_id: app_id.clone(),
+                shuffle_id,
+                partition_id: data.partition_id,
+            };
             let ctx = WritingViewContext {
-                uid: PartitionedUId {
-                    app_id: app_id.clone(),
-                    shuffle_id,
-                    partition_id: data.partition_id,
-                },
+                uid: pid.clone(),
                 data_blocks: partitioned_blocks,
             };
 
-            let inserted = app.insert(ctx).await;
+            let inserted = app.insert(ctx)
+                .instrument_await(format!("inserting data of grpc request. {:?}", &pid))
+                .await;
             if inserted.is_err() {
                 let err = format!(
                     "Errors on putting data. app_id: {}, err: {:?}",

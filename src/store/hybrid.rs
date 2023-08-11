@@ -341,7 +341,7 @@ impl Store for HybridStore {
         let insert_result = self
             .hot_store
             .insert(ctx)
-            .instrument_await(format!("inserting data into memory. uid: {:?}", &uid))
+            .instrument_await("inserting data into memory")
             .await;
         if self.is_memory_only() {
             return insert_result;
@@ -350,14 +350,16 @@ impl Store for HybridStore {
         let _spill_lock = self
             .memory_spill_lock
             .lock()
-            .instrument_await(format!("waiting memory spill lock. uid: {:?}", &uid))
+            .instrument_await("waiting memory spill lock")
             .await;
 
         // single buffer flush
         let buffer = self
             .hot_store
             .get_or_create_underlying_staging_buffer(uid.clone());
-        let mut buffer_inner = buffer.lock().await;
+        let mut buffer_inner = buffer.lock()
+            .instrument_await("waiting buffer lock for single flush check")
+            .await;
         let max_spill_size = &self.config.memory_single_buffer_max_spill_size;
         if max_spill_size.is_some() {
             match ReadableSize::from_str(max_spill_size.clone().unwrap().as_str()) {
@@ -380,12 +382,13 @@ impl Store for HybridStore {
             let buffers = self
                 .hot_store
                 .get_required_spill_buffer(target_size)
-                .instrument_await(format!("getting spill buffers. uid: {:?}", &uid))
+                .instrument_await("getting spill buffers")
                 .await;
 
             for (partition_id, buffer) in buffers {
                 let mut buffer_inner = buffer.lock().await;
                 self.make_memory_buffer_flush(&mut buffer_inner, partition_id)
+                    .instrument_await("sending flush buffer into queue")
                     .await?;
             }
             debug!("Trigger spilling in background....");

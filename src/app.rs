@@ -49,6 +49,7 @@ use std::str::FromStr;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
+use await_tree::InstrumentAwait;
 
 use tokio::sync::RwLock;
 
@@ -177,10 +178,13 @@ impl App {
         let len: i32 = ctx.data_blocks.iter().map(|block| block.length).sum();
         self.get_underlying_partition_bitmap(ctx.uid.clone())
             .incr_data_size(len)
+            .instrument_await("increasing data size for this partition")
             .await?;
         TOTAL_RECEIVED_DATA.inc_by(len as u64);
 
-        self.store.insert(ctx).await
+        self.store.insert(ctx)
+            .instrument_await("inserting data into hybrid store")
+            .await
     }
 
     pub async fn select(&self, ctx: ReadingViewContext) -> Result<ResponseData, WorkerError> {
