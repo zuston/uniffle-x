@@ -19,7 +19,7 @@ use crate::config::Config;
 use crate::error::WorkerError;
 use crate::metric::{
     GAUGE_APP_NUMBER, TOTAL_APP_NUMBER, TOTAL_HUGE_PARTITION_REQUIRE_BUFFER_FAILED,
-    TOTAL_RECEIVED_DATA, TOTAL_REQUIRE_BUFFER_FAILED,
+    TOTAL_RECEIVED_DATA,
 };
 
 use crate::readable_size::ReadableSize;
@@ -179,12 +179,20 @@ impl App {
         self.get_underlying_partition_bitmap(ctx.uid.clone())
             .incr_data_size(len)
             .await?;
-        info!("incr data size: {} ms of uid: {:?}", timer.elapsed().as_millis(), &uid);
+        info!(
+            "incr data size: {} ms of uid: {:?}",
+            timer.elapsed().as_millis(),
+            &uid
+        );
         TOTAL_RECEIVED_DATA.inc_by(len as u64);
 
         let timer = Instant::now();
         let a = self.store.insert(ctx).await;
-        info!("app -> store costs {} ms of uid: {:?}", timer.elapsed().as_millis(), &uid);
+        info!(
+            "app -> store costs {} ms of uid: {:?}",
+            timer.elapsed().as_millis(),
+            &uid
+        );
         a
     }
 
@@ -241,10 +249,10 @@ impl App {
         &self,
         ctx: RequireBufferContext,
     ) -> Result<RequireBufferResponse, WorkerError> {
-        if self.huge_partition_limit(&ctx.uid).await? {
-            TOTAL_REQUIRE_BUFFER_FAILED.inc();
-            return Err(WorkerError::MEMORY_USAGE_LIMITED_BY_HUGE_PARTITION);
-        }
+        // if self.huge_partition_limit(&ctx.uid).await? {
+        //     TOTAL_REQUIRE_BUFFER_FAILED.inc();
+        //     return Err(WorkerError::MEMORY_USAGE_LIMITED_BY_HUGE_PARTITION);
+        // }
 
         self.store.require_buffer(ctx).await
     }

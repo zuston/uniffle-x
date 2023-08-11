@@ -22,9 +22,7 @@ use crate::app::{
 };
 use crate::config::MemoryStoreConfig;
 use crate::error::WorkerError;
-use crate::metric::{
-    GAUGE_MEMORY_ALLOCATED, GAUGE_MEMORY_CAPACITY, GAUGE_MEMORY_USED, TOTAL_MEMORY_USED,
-};
+use crate::metric::{GAUGE_MEMORY_ALLOCATED, GAUGE_MEMORY_CAPACITY, GAUGE_MEMORY_USED};
 use crate::readable_size::ReadableSize;
 use crate::store::{
     DataSegment, PartitionedDataBlock, PartitionedMemoryData, RequireBufferResponse, ResponseData,
@@ -313,25 +311,25 @@ impl Store for MemoryStore {
 
         // let timer = Instant::now();
         let buffer = self.get_or_create_underlying_staging_buffer(uid.clone());
-        let mut buffer_guarded = buffer.lock().instrument_await("getting buffer lock").await;
+        let buffer_guarded = buffer.lock().instrument_await("getting buffer lock").await;
         // info!("buffer lock cost {} ms of uid: {:?}", timer.elapsed().as_millis(), &uid);
 
         // let timer = Instant::now();
-        let blocks = ctx.data_blocks;
-        let inserted_size = buffer_guarded.add(blocks)?;
+        // let blocks = ctx.data_blocks;
+        // let inserted_size = buffer_guarded.add(blocks)?;
         // info!("inserting cost {} ms of uid: {:?}", timer.elapsed().as_millis(), &uid);
 
         drop(buffer_guarded);
 
         // let timer = Instant::now();
-        self.budget
-            .allocated_to_used(inserted_size)
-            .instrument_await("allocated => used")
-            .await?;
+        // self.budget
+        //     .allocated_to_used(inserted_size)
+        //     .instrument_await("allocated => used")
+        //     .await?;
         // info!("allocated size -> used cost {} ms of uid: {:?}", timer.elapsed().as_millis(), &uid);
 
         // let timer = Instant::now();
-        TOTAL_MEMORY_USED.inc_by(inserted_size as u64);
+        // TOTAL_MEMORY_USED.inc_by(inserted_size as u64);
         // info!("metrics inc cost {} msof uid: {:?}", timer.elapsed().as_millis(), &uid);
         Ok(())
     }
