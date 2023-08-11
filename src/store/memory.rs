@@ -591,7 +591,7 @@ impl MemorySnapshot {
 
 #[derive(Clone)]
 pub struct MemoryBudget {
-    inner: Arc<Mutex<MemoryBudgetInner>>,
+    inner: Arc<std::sync::Mutex<MemoryBudgetInner>>,
 }
 
 struct MemoryBudgetInner {
@@ -605,7 +605,7 @@ impl MemoryBudget {
     fn new(capacity: i64) -> MemoryBudget {
         GAUGE_MEMORY_CAPACITY.set(capacity);
         MemoryBudget {
-            inner: Arc::new(Mutex::new(MemoryBudgetInner {
+            inner: Arc::new(std::sync::Mutex::new(MemoryBudgetInner {
                 capacity,
                 allocated: 0,
                 used: 0,
@@ -615,12 +615,12 @@ impl MemoryBudget {
     }
 
     pub async fn snapshot(&self) -> MemorySnapshot {
-        let inner = self.inner.lock().await;
+        let inner = self.inner.lock().unwrap();
         (inner.capacity, inner.allocated, inner.used).into()
     }
 
     async fn pre_allocate(&self, size: i64) -> Result<(bool, i64)> {
-        let mut inner = self.inner.lock().await;
+        let mut inner = self.inner.lock().unwrap();
         let free_space = inner.capacity - inner.allocated - inner.used;
         if free_space < size {
             Ok((false, -1))
@@ -634,7 +634,7 @@ impl MemoryBudget {
     }
 
     async fn allocated_to_used(&self, size: i64) -> Result<bool> {
-        let mut inner = self.inner.lock().await;
+        let mut inner = self.inner.lock().unwrap();
         if inner.allocated < size {
             inner.allocated = 0;
         } else {
@@ -647,7 +647,7 @@ impl MemoryBudget {
     }
 
     async fn free_used(&self, size: i64) -> Result<bool> {
-        let mut inner = self.inner.lock().await;
+        let mut inner = self.inner.lock().unwrap();
         if inner.used < size {
             inner.used = 0;
             // todo: metric
@@ -659,7 +659,7 @@ impl MemoryBudget {
     }
 
     async fn free_allocated(&self, size: i64) -> Result<bool> {
-        let mut inner = self.inner.lock().await;
+        let mut inner = self.inner.lock().unwrap();
         if inner.allocated < size {
             inner.allocated = 0;
         } else {
