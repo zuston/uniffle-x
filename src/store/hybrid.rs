@@ -339,6 +339,7 @@ impl Store for HybridStore {
     async fn insert(&self, ctx: WritingViewContext) -> Result<(), WorkerError> {
         let uid = ctx.uid.clone();
 
+        let timer = Instant::now();
         let insert_result = self
             .hot_store
             .insert(ctx)
@@ -347,6 +348,7 @@ impl Store for HybridStore {
         if self.is_memory_only() {
             return insert_result;
         }
+        info!("inserted cost: {} ms", timer.elapsed().as_millis());
 
         // single buffer flush
         // let buffer = self

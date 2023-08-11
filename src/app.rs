@@ -50,8 +50,6 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
-use tokio::sync::RwLock;
-
 #[derive(Debug, Clone)]
 enum DataDistribution {
     NORMAL,
@@ -92,7 +90,7 @@ pub struct App {
 
 #[derive(Clone)]
 struct PartitionedMeta {
-    inner: Arc<RwLock<PartitionedMetaInner>>,
+    inner: Arc<std::sync::RwLock<PartitionedMetaInner>>,
 }
 
 struct PartitionedMetaInner {
@@ -103,7 +101,7 @@ struct PartitionedMetaInner {
 impl PartitionedMeta {
     fn new() -> Self {
         PartitionedMeta {
-            inner: Arc::new(RwLock::new(PartitionedMetaInner {
+            inner: Arc::new(std::sync::RwLock::new(PartitionedMetaInner {
                 blocks_bitmap: Treemap::default(),
                 total_size: 0,
             })),
@@ -111,24 +109,24 @@ impl PartitionedMeta {
     }
 
     async fn get_data_size(&self) -> Result<u64> {
-        let meta = self.inner.read().await;
+        let meta = self.inner.read().unwrap();
         Ok(meta.total_size)
     }
 
     async fn incr_data_size(&mut self, data_size: i32) -> Result<()> {
-        let mut meta = self.inner.write().await;
+        let mut meta = self.inner.write().unwrap();
         meta.total_size += data_size as u64;
         Ok(())
     }
 
     async fn get_block_ids_bytes(&self) -> Result<Bytes> {
-        let meta = self.inner.read().await;
+        let meta = self.inner.read().unwrap();
         let serialized_data = meta.blocks_bitmap.serialize()?;
         Ok(Bytes::from(serialized_data))
     }
 
     async fn report_block_ids(&mut self, ids: Vec<i64>) -> Result<()> {
-        let mut meta = self.inner.write().await;
+        let mut meta = self.inner.write().unwrap();
         for id in ids {
             meta.blocks_bitmap.add(id as u64);
         }

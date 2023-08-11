@@ -163,7 +163,9 @@ impl ShuffleServer for DefaultShuffleServer {
                 data_blocks: partitioned_blocks,
             };
 
+            let timer = Instant::now();
             let inserted = app.insert(ctx).await;
+            info!("app insert cost {} ms", timer.elapsed().as_millis());
             if inserted.is_err() {
                 let err = format!(
                     "Errors on putting data. app_id: {}, err: {:?}",
