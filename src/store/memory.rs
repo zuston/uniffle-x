@@ -315,20 +315,20 @@ impl Store for MemoryStore {
         let buffer = self.get_or_create_underlying_staging_buffer(uid.clone());
         let mut buffer_guarded = buffer.lock()
             .await;
-        info!("buffer lock cost {} ms", timer.elapsed().as_millis());
+        info!("buffer lock cost {} ms of uid: {:?}", timer.elapsed().as_millis(), &uid);
 
         let timer = Instant::now();
         let blocks = ctx.data_blocks;
         let inserted_size = buffer_guarded.add(blocks)?;
-        info!("inserting cost {} ms", timer.elapsed().as_millis());
+        info!("inserting cost {} ms of uid: {:?}", timer.elapsed().as_millis(), &uid);
 
         let timer = Instant::now();
         self.budget.allocated_to_used(inserted_size).await?;
-        info!("allocated size -> used cost {} ms", timer.elapsed().as_millis());
+        info!("allocated size -> used cost {} ms of uid: {:?}", timer.elapsed().as_millis(), &uid);
 
         let timer = Instant::now();
         TOTAL_MEMORY_USED.inc_by(inserted_size as u64);
-        info!("metrics inc cost {} ms", timer.elapsed().as_millis());
+        info!("metrics inc cost {} msof uid: {:?}", timer.elapsed().as_millis(), &uid);
         Ok(())
     }
 

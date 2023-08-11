@@ -348,7 +348,7 @@ impl Store for HybridStore {
         if self.is_memory_only() {
             return insert_result;
         }
-        info!("inserted cost: {} ms", timer.elapsed().as_millis());
+        info!("inserted cost: {} ms of uid: {:?}", timer.elapsed().as_millis(), &uid);
 
         // single buffer flush
         // let buffer = self
@@ -371,7 +371,7 @@ impl Store for HybridStore {
 
         let t1 = Instant::now();
         if let Ok(_lock) = self.memory_spill_lock.try_lock() {
-            info!("get spill lock cost: {} ms", t1.elapsed().as_millis());
+            info!("get spill lock cost: {} ms of uid: {:?}", t1.elapsed().as_millis(), &uid);
             let timer = Instant::now();
             // watermark flush
             let used_ratio = self.hot_store.memory_usage_ratio().await;
@@ -391,7 +391,7 @@ impl Store for HybridStore {
                 }
                 debug!("Trigger spilling in background....");
             }
-            info!("spill trigger costs: {} ms", timer.elapsed().as_millis());
+            info!("spill trigger costs : {} ms", timer.elapsed().as_millis());
         } else {
             info!("not get the lock cost: {} ms", t1.elapsed().as_millis());
         }

@@ -145,6 +145,8 @@ impl ShuffleServer for DefaultShuffleServer {
 
         let start = Instant::now();
         let mut max_single_loop = 0u128;
+        let mut uid = None;
+
         let mut idx = 0;
         let _blocks: Vec<PartitionedDataBlock> = vec![];
         for shuffle_data in req.shuffle_data {
@@ -165,7 +167,8 @@ impl ShuffleServer for DefaultShuffleServer {
 
             let timer = Instant::now();
             let inserted = app.insert(ctx).await;
-            info!("app insert cost {} ms", timer.elapsed().as_millis());
+            let insert_cost = timer.elapsed().as_millis();
+            info!("app insert cost {} ms", insert_cost);
             if inserted.is_err() {
                 let err = format!(
                     "Errors on putting data. app_id: {}, err: {:?}",
@@ -182,10 +185,15 @@ impl ShuffleServer for DefaultShuffleServer {
             let execution_time = now.elapsed().as_millis();
             if execution_time > max_single_loop {
                 max_single_loop = execution_time;
+                uid = Some(PartitionedUId {
+                    app_id: app_id.clone(),
+                    shuffle_id,
+                    partition_id: data.partition_id,
+                });
             }
         }
 
-        info!("execute: {} ms. total loop: {}, max_single_loop: {}", start.elapsed().as_millis(), idx, max_single_loop);
+        info!("execute: {} ms. total loop: {}, max_single_loop: {}. uid: {:?}", start.elapsed().as_millis(), idx, max_single_loop, uid);
         timer.observe_duration();
 
         Ok(Response::new(SendShuffleDataResponse {

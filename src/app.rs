@@ -49,6 +49,7 @@ use std::str::FromStr;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
+use tokio::time::Instant;
 
 #[derive(Debug, Clone)]
 enum DataDistribution {
@@ -172,13 +173,19 @@ impl App {
     }
 
     pub async fn insert(&self, ctx: WritingViewContext) -> Result<(), WorkerError> {
+        let timer = Instant::now();
+        let uid = ctx.uid.clone();
         let len: i32 = ctx.data_blocks.iter().map(|block| block.length).sum();
         self.get_underlying_partition_bitmap(ctx.uid.clone())
             .incr_data_size(len)
             .await?;
+        info!("incr data size: {} ms of uid: {:?}", timer.elapsed().as_millis(), &uid);
         TOTAL_RECEIVED_DATA.inc_by(len as u64);
 
-        self.store.insert(ctx).await
+        let timer = Instant::now();
+        let a = self.store.insert(ctx).await;
+        info!("app -> store costs {} ms of uid: {:?}", timer.elapsed().as_millis(), &uid);
+        a
     }
 
     pub async fn select(&self, ctx: ReadingViewContext) -> Result<ResponseData, WorkerError> {
