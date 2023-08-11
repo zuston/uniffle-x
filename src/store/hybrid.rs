@@ -367,7 +367,9 @@ impl Store for HybridStore {
         // }
         // drop(buffer_inner);
 
+        let t1 = Instant::now();
         if let Ok(_lock) = self.memory_spill_lock.try_lock() {
+            info!("get spill lock cost: {} ms", t1.elapsed().as_millis());
             let timer = Instant::now();
             // watermark flush
             let used_ratio = self.hot_store.memory_usage_ratio().await;
@@ -387,7 +389,9 @@ impl Store for HybridStore {
                 }
                 debug!("Trigger spilling in background....");
             }
-            info!("spill trigger costs: {} ms", timer.elapsed().as_millis())
+            info!("spill trigger costs: {} ms", timer.elapsed().as_millis());
+        } else {
+            info!("not get the lock cost: {} ms", t1.elapsed().as_millis());
         }
 
         insert_result
