@@ -311,13 +311,13 @@ impl Store for MemoryStore {
     async fn insert(&self, ctx: WritingViewContext) -> Result<(), WorkerError> {
         let uid = ctx.uid;
 
-        let timer = Instant::now();
+        // let timer = Instant::now();
         let buffer = self.get_or_create_underlying_staging_buffer(uid.clone());
         let mut buffer_guarded = buffer.lock()
             .await;
         // info!("buffer lock cost {} ms", timer.elapsed().as_millis());
 
-        let timer = Instant::now();
+        // let timer = Instant::now();
         let blocks = ctx.data_blocks;
         let inserted_size = buffer_guarded.add(blocks)?;
 
