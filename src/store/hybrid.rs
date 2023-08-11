@@ -37,7 +37,7 @@ use crate::store::{Persistent, RequireBufferResponse, ResponseData, ResponseData
 use anyhow::{anyhow, Result};
 
 use async_trait::async_trait;
-use log::{debug, error};
+use log::{debug, error, info};
 use prometheus::core::{Atomic, AtomicU64};
 use std::any::Any;
 
@@ -48,6 +48,7 @@ use std::str::FromStr;
 use std::sync::Arc;
 
 use tokio::sync::{Mutex, MutexGuard, Semaphore};
+use tokio::time::Instant;
 
 trait PersistentStore: Store + Persistent + Send + Sync {}
 impl PersistentStore for LocalFileStore {}
@@ -367,6 +368,7 @@ impl Store for HybridStore {
         // drop(buffer_inner);
 
         if let Ok(_lock) = self.memory_spill_lock.try_lock() {
+            let timer = Instant::now();
             // watermark flush
             let used_ratio = self.hot_store.memory_usage_ratio().await;
             if used_ratio > self.config.memory_spill_high_watermark {
@@ -385,6 +387,7 @@ impl Store for HybridStore {
                 }
                 debug!("Trigger spilling in background....");
             }
+            info!("spill trigger costs: {} ms", timer.elapsed().as_millis())
         }
 
         insert_result
