@@ -133,6 +133,12 @@ impl MemoryStore {
         // sort
         // get the spill buffers
 
+        let snapshot = self.budget.snapshot().await;
+        let removed_size = snapshot.used - target_len;
+        if removed_size <= 0 {
+            return HashMap::new();
+        }
+
         let mut sorted_tree_map = BTreeMap::new();
 
         let buffers = self.state.clone().into_read_only();
@@ -145,7 +151,6 @@ impl MemoryStore {
             valset.push(key);
         }
 
-        let removed_size = self.memory_capacity - target_len;
         let mut current_removed = 0;
 
         let mut required_spill_buffers = HashMap::new();
