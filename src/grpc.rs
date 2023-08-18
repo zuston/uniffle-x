@@ -31,8 +31,9 @@ use crate::proto::uniffle::{
     ShuffleRegisterRequest, ShuffleRegisterResponse, ShuffleUnregisterRequest,
     ShuffleUnregisterResponse,
 };
-use crate::store::{PartitionedData, PartitionedDataBlock, ResponseDataIndex};
+use crate::store::{PartitionedData, ResponseDataIndex};
 use bytes::{BufMut, BytesMut};
+use std::collections::HashMap;
 
 use log::{debug, error, info, warn};
 
@@ -142,17 +143,24 @@ impl ShuffleServer for DefaultShuffleServer {
             app.discard_tickets(ticket_id);
         }
 
-        let _blocks: Vec<PartitionedDataBlock> = vec![];
+        let mut blocks_map = HashMap::new();
         for shuffle_data in req.shuffle_data {
             let data: PartitionedData = shuffle_data.into();
             let partitioned_blocks = data.blocks;
+
+            let partition_id = data.partition_id;
+            let blocks = blocks_map.entry(partition_id).or_insert_with(|| vec![]);
+            blocks.extend(partitioned_blocks);
+        }
+
+        for (partition_id, blocks) in blocks_map.into_iter() {
             let ctx = WritingViewContext {
                 uid: PartitionedUId {
                     app_id: app_id.clone(),
                     shuffle_id,
-                    partition_id: data.partition_id,
+                    partition_id,
                 },
-                data_blocks: partitioned_blocks,
+                data_blocks: blocks,
             };
 
             let inserted = app.insert(ctx).await;
