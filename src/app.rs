@@ -36,11 +36,11 @@ use bytes::Bytes;
 use croaring::treemap::JvmSerializer;
 use croaring::Treemap;
 
-use dashmap::DashMap;
+use dashmap::{DashMap};
 use log::{debug, error, info};
 
 use std::collections::hash_map::DefaultHasher;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use std::hash::{Hash, Hasher};
 
@@ -49,8 +49,9 @@ use std::str::FromStr;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
+use once_cell::sync::Lazy;
 
-use tokio::sync::RwLock;
+use tokio::sync::{Mutex, RwLock};
 
 #[derive(Debug, Clone)]
 enum DataDistribution {
@@ -343,6 +344,19 @@ pub enum PurgeEvent {
 
 pub type AppManagerRef = Arc<AppManager>;
 
+pub type DataPipelineReq = (String, i32, HashMap<i32, Vec<PartitionedDataBlock>>);
+pub type DataPipeline = (async_channel::Receiver<DataPipelineReq>, async_channel::Sender<DataPipelineReq>);
+pub static DATA_PIPELINE: Lazy<DataPipeline> = Lazy::new(|| {
+    let (send, recv) = async_channel::unbounded();
+    return (recv, send);
+});
+
+pub async fn pipeline_send_request(app_id: String, shuffle_id: i32, blocks_map: HashMap<i32, Vec<PartitionedDataBlock>>) {
+    DATA_PIPELINE.1.send(
+        (app_id, shuffle_id, blocks_map)
+    ).await;
+}
+
 pub struct AppManager {
     // key: app_id
     apps: DashMap<String, Arc<App>>,
@@ -374,8 +388,31 @@ impl AppManager {
 impl AppManager {
     pub fn get_ref(config: Config) -> AppManagerRef {
         let app_ref = Arc::new(AppManager::new(config));
-        let app_manager_ref_cloned = app_ref.clone();
 
+        let pipeline_app_manager = app_ref.clone();
+        tokio::spawn(async move {
+            loop {
+                tokio::time::sleep(Duration::from_millis(20)).await;
+
+                let mut blocks = HashMap::new();
+                // todo: group this for 10 batches.
+                while let Ok(single_batch_data) = DATA_PIPELINE.0.recv().await {
+                    let app_id = single_batch_data.0;
+                    let shuffle_id = single_batch_data.1;
+                    let data = single_batch_data.2;
+
+                    for (partition, pblocks) in data.iter() {
+                        let pid = PartitionedUId::from(app_id, shuffle_id, partition.into());
+                        let mut entry = blocks.entry(pid).or_insert_with(|| vec![]);
+                        entry.extend(pblocks);
+                    }
+                }
+
+
+            }
+        });
+
+        let app_manager_ref_cloned = app_ref.clone();
         tokio::spawn(async move {
             info!("Starting app heartbeat checker...");
             loop {
@@ -552,6 +589,7 @@ impl PartitionedUId {
 
 #[cfg(test)]
 mod test {
+    use std::collections::HashMap;
     use crate::app::{
         AppManager, GetBlocksContext, PartitionedUId, ReadingOptions, ReadingViewContext,
         ReportBlocksContext, WritingViewContext,
@@ -645,6 +683,18 @@ mod test {
         if let Some(app) = app_manager_ref.get_app("app_id".into()) {
             assert_eq!("app_id", app.app_id);
         }
+    }
+
+    #[test]
+    fn test_map() {
+        let map = HashMap::new();
+        map.insert(1, 1);
+
+        let new_m = map.clone();
+        map.clear();
+
+        println!("{:?}", new_m);
+        println!("{:?}", map);
     }
 
     #[tokio::test]

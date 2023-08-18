@@ -15,10 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-use crate::app::{
-    AppManagerRef, GetBlocksContext, PartitionedUId, ReadingIndexViewContext, ReadingOptions,
-    ReadingViewContext, ReportBlocksContext, RequireBufferContext, WritingViewContext,
-};
+use crate::app::{AppManagerRef, GetBlocksContext, PartitionedUId, ReadingIndexViewContext, ReadingOptions, ReadingViewContext, ReportBlocksContext, RequireBufferContext, WritingViewContext};
 use crate::proto::uniffle::shuffle_server_server::ShuffleServer;
 use crate::proto::uniffle::{
     AppHeartBeatRequest, AppHeartBeatResponse, FinishShuffleRequest, FinishShuffleResponse,
@@ -34,15 +31,17 @@ use crate::proto::uniffle::{
 use crate::store::{PartitionedData, ResponseDataIndex};
 use bytes::{BufMut, BytesMut};
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use log::{debug, error, info, warn};
+use once_cell::sync::Lazy;
 
 use crate::metric::{
     GRPC_BUFFER_REQUIRE_PROCESS_TIME, GRPC_GET_LOCALFILE_DATA_PROCESS_TIME,
     GRPC_GET_MEMORY_DATA_PROCESS_TIME, GRPC_GET_MEMORY_DATA_TRANSPORT_TIME,
     GRPC_SEND_DATA_PROCESS_TIME, GRPC_SEND_DATA_TRANSPORT_TIME,
 };
-use crate::util;
+use crate::{app, util};
 use tonic::{Request, Response, Status};
 
 /// Use the maximum value for HTTP/2 connection window size to avoid deadlock among multiplexed
@@ -51,6 +50,10 @@ pub const MAX_CONNECTION_WINDOW_SIZE: u32 = (1 << 31) - 1;
 /// Use a large value for HTTP/2 stream window size to improve the performance of remote exchange,
 /// as we don't rely on this for back-pressure.
 pub const STREAM_WINDOW_SIZE: u32 = 32 * 1024 * 1024; // 32 MB
+
+pub static SEND_GLOBAL: Lazy<Arc<std::sync::Mutex<()>>> = Lazy::new(|| {
+    Arc::new(std::sync::Mutex::new(()))
+});
 
 #[allow(non_camel_case_types)]
 enum StatusCode {
@@ -153,6 +156,17 @@ impl ShuffleServer for DefaultShuffleServer {
             blocks.extend(partitioned_blocks);
         }
 
+        // enable the pipeline request
+        if true {
+            app::pipeline_send_request(app_id, shuffle_id, blocks_map).await;
+            timer.observe_duration();
+            return Ok(Response::new(SendShuffleDataResponse {
+                status: StatusCode::SUCCESS.into(),
+                ret_msg: "".to_string(),
+            }));
+        }
+
+        let lock = SEND_GLOBAL.clone().lock().unwrap();
         for (partition_id, blocks) in blocks_map.into_iter() {
             let ctx = WritingViewContext {
                 uid: PartitionedUId {
@@ -177,6 +191,7 @@ impl ShuffleServer for DefaultShuffleServer {
                 }));
             }
         }
+        drop(lock);
 
         timer.observe_duration();
 
