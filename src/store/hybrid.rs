@@ -366,7 +366,7 @@ impl Store for HybridStore {
         let insert_result = self
             .hot_store
             .insert(ctx)
-            .instrument_await(format!("inserting data into memory. uid: {:?}", &uid))
+            .instrument_await("inserting data into memory")
             .await;
         if self.is_memory_only() {
             return insert_result;
