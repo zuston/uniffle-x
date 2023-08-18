@@ -39,6 +39,7 @@ use std::collections::{BTreeMap, HashMap};
 
 use std::str::FromStr;
 
+use crate::store::mem::InstrumentAwait;
 use crate::store::mem::MemoryBufferTicket;
 use log::error;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -311,13 +312,19 @@ impl Store for MemoryStore {
     async fn insert(&self, ctx: WritingViewContext) -> Result<(), WorkerError> {
         let uid = ctx.uid;
         let buffer = self.get_or_create_underlying_staging_buffer(uid.clone());
-        let mut buffer_guarded = buffer.lock().await;
+        let mut buffer_guarded = buffer
+            .lock()
+            .instrument_await("trying buffer lock to insert")
+            .await;
 
         let blocks = ctx.data_blocks;
         let inserted_size = buffer_guarded.add(blocks)?;
         drop(buffer_guarded);
 
-        self.budget.allocated_to_used(inserted_size).await?;
+        self.budget
+            .allocated_to_used(inserted_size)
+            .instrument_await("make budget allocated -> used")
+            .await?;
 
         TOTAL_MEMORY_USED.inc_by(inserted_size as u64);
 

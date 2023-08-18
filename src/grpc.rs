@@ -32,6 +32,7 @@ use crate::proto::uniffle::{
     ShuffleUnregisterResponse,
 };
 use crate::store::{PartitionedData, ResponseDataIndex};
+use await_tree::InstrumentAwait;
 use bytes::{BufMut, BytesMut};
 use std::collections::HashMap;
 
@@ -154,16 +155,20 @@ impl ShuffleServer for DefaultShuffleServer {
         }
 
         for (partition_id, blocks) in blocks_map.into_iter() {
+            let uid = PartitionedUId {
+                app_id: app_id.clone(),
+                shuffle_id,
+                partition_id,
+            };
             let ctx = WritingViewContext {
-                uid: PartitionedUId {
-                    app_id: app_id.clone(),
-                    shuffle_id,
-                    partition_id,
-                },
+                uid: uid.clone(),
                 data_blocks: blocks,
             };
 
-            let inserted = app.insert(ctx).await;
+            let inserted = app
+                .insert(ctx)
+                .instrument_await(format!("insert data for app. uid: {:?}", &uid))
+                .await;
             if inserted.is_err() {
                 let err = format!(
                     "Errors on putting data. app_id: {}, err: {:?}",
