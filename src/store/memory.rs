@@ -41,6 +41,7 @@ use std::str::FromStr;
 
 use crate::store::mem::MemoryBufferTicket;
 use log::error;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::Mutex;
@@ -55,6 +56,7 @@ pub struct MemoryStore {
     memory_capacity: i64,
     buffer_ticket_timeout_sec: i64,
     buffer_ticket_check_interval_sec: i64,
+    in_flush_buffer_size: AtomicU64,
 }
 
 unsafe impl Send for MemoryStore {}
@@ -69,6 +71,7 @@ impl MemoryStore {
             memory_capacity: max_memory_size,
             buffer_ticket_timeout_sec: 5 * 60,
             buffer_ticket_check_interval_sec: 10,
+            in_flush_buffer_size: Default::default(),
         }
     }
 
@@ -81,6 +84,7 @@ impl MemoryStore {
             memory_capacity: capacity.as_bytes() as i64,
             buffer_ticket_timeout_sec: conf.buffer_ticket_timeout_sec.unwrap_or(5 * 60),
             buffer_ticket_check_interval_sec: 10,
+            in_flush_buffer_size: Default::default(),
         }
     }
 
@@ -101,6 +105,21 @@ impl MemoryStore {
 
     pub fn get_capacity(&self) -> Result<i64> {
         Ok(self.memory_capacity)
+    }
+
+    pub async fn memory_used_ratio(&self) -> f32 {
+        let snapshot = self.budget.snapshot().await;
+        (snapshot.used + snapshot.allocated
+            - self.in_flush_buffer_size.load(Ordering::SeqCst) as i64) as f32
+            / snapshot.capacity as f32
+    }
+
+    pub fn add_to_in_flight_buffer_size(&self, size: u64) {
+        self.in_flush_buffer_size.fetch_add(size, Ordering::SeqCst);
+    }
+
+    pub fn desc_to_in_flight_buffer_size(&self, size: u64) {
+        self.in_flush_buffer_size.fetch_sub(size, Ordering::SeqCst);
     }
 
     pub async fn free_memory(&self, size: i64) -> Result<bool> {
