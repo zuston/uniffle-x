@@ -401,30 +401,6 @@ impl Store for HybridStore {
             }
         }
 
-        // if let Ok(_lock) = self.memory_spill_lock.try_lock() {
-        //     // send watermark flush trigger
-        //     let used_ratio = self.hot_store.memory_usage_ratio().await;
-        //     if used_ratio > self.config.memory_spill_high_watermark {
-        //         let target_size = (self.hot_store.get_capacity()? as f32
-        //             * self.config.memory_spill_low_watermark)
-        //             as i64;
-        //         let buffers = self
-        //             .hot_store
-        //             .get_required_spill_buffer(target_size)
-        //             .instrument_await(format!("getting spill buffers. uid: {:?}", &uid))
-        //             .await;
-        //
-        //         for (partition_id, buffer) in buffers {
-        //             let mut buffer_inner = buffer.lock().await;
-        //             let (in_flight_uid, blocks) = buffer_inner.migrate_staging_to_in_flight()?;
-        //             drop(buffer_inner);
-        //             self.make_memory_buffer_flush(in_flight_uid, blocks, partition_id)
-        //                 .await?;
-        //         }
-        //         debug!("Trigger spilling in background....");
-        //     }
-        // }
-
         insert_result
     }
 
