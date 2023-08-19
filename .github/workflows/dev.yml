@@ -27,7 +27,7 @@ jobs:
         uses: taiki-e/install-action@v2
         with:
           tool: protoc@3.20.3
-#      - uses: actions/checkout@v3
+      - uses: actions/checkout@v3
 #      - name: Set up cargo cache
 #        uses: actions/cache@v3
 #        continue-on-error: false
