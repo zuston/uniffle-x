@@ -249,13 +249,16 @@ impl Store for LocalFileStore {
             .write()
             .instrument_await(format!(
                 "localfile partition file lock. path: {}",
-                data_file_path
+                &data_file_path
             ))
             .await;
 
         // write index file and data file
         // todo: split multiple pieces
-        let mut next_offset = local_disk.get_file_len(data_file_path.clone()).await?;
+        let mut next_offset = local_disk
+            .get_file_len(data_file_path.clone())
+            .instrument_await(format!("getting the file len. path: {}", &data_file_path))
+            .await?;
 
         let mut index_bytes_holder = BytesMut::new();
         let mut data_bytes_holder = BytesMut::new();
@@ -320,7 +323,10 @@ impl Store for LocalFileStore {
             .entry(data_file_path.clone())
             .or_insert_with(|| Arc::new(RwLock::new(())))
             .clone();
-        let _lock_guard = lock_cloned.read().await;
+        let _lock_guard = lock_cloned
+            .read()
+            .instrument_await("getting file read lock")
+            .await;
 
         let local_disk: Option<Arc<LocalDisk>> = self.get_owned_disk(uid.clone());
 
@@ -342,7 +348,10 @@ impl Store for LocalFileStore {
             ));
         }
 
-        let data = local_disk.read(data_file_path, offset, Some(len)).await?;
+        let data = local_disk
+            .read(data_file_path, offset, Some(len))
+            .instrument_await("getting data from localfile")
+            .await?;
         Ok(ResponseData::Local(PartitionedLocalData { data }))
     }
 
@@ -359,7 +368,10 @@ impl Store for LocalFileStore {
             .entry(data_file_path.clone())
             .or_insert_with(|| Arc::new(RwLock::new(())))
             .clone();
-        let _lock_guard = lock_cloned.read().await;
+        let _lock_guard = lock_cloned
+            .read()
+            .instrument_await("waiting file lock to read index data")
+            .await;
 
         let local_disk: Option<Arc<LocalDisk>> = self.get_owned_disk(uid.clone());
 
@@ -382,8 +394,14 @@ impl Store for LocalFileStore {
             ));
         }
 
-        let index_data_result = local_disk.read(index_file_path, 0, None).await?;
-        let len = local_disk.get_file_len(data_file_path).await?;
+        let index_data_result = local_disk
+            .read(index_file_path, 0, None)
+            .instrument_await("reading index data from file")
+            .await?;
+        let len = local_disk
+            .get_file_len(data_file_path)
+            .instrument_await("getting file len from file")
+            .await?;
         Ok(Local(LocalDataIndex {
             index_data: index_data_result,
             data_file_len: len,
