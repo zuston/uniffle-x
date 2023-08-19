@@ -215,10 +215,15 @@ impl ShuffleServer for DefaultShuffleServer {
 
         let app = app_option.unwrap();
 
+        let partition_id = PartitionedUId::from(app_id.to_string(), shuffle_id, partition_id);
         let data_index_wrapper = app
             .list_index(ReadingIndexViewContext {
-                partition_id: PartitionedUId::from(app_id.to_string(), shuffle_id, partition_id),
+                partition_id: partition_id.clone(),
             })
+            .instrument_await(format!(
+                "get index from localfile. uid: {:?}",
+                &partition_id
+            ))
             .await;
 
         if data_index_wrapper.is_err() {
@@ -269,16 +274,21 @@ impl ShuffleServer for DefaultShuffleServer {
             }));
         }
 
+        let partition_id = PartitionedUId {
+            app_id: app_id.to_string(),
+            shuffle_id,
+            partition_id,
+        };
         let data_fetched_result = app
             .unwrap()
             .select(ReadingViewContext {
-                uid: PartitionedUId {
-                    app_id: app_id.to_string(),
-                    shuffle_id,
-                    partition_id,
-                },
+                uid: partition_id.clone(),
                 reading_options: ReadingOptions::FILE_OFFSET_AND_LEN(req.offset, req.length as i64),
             })
+            .instrument_await(format!(
+                "select data from localfile. uid: {:?}",
+                &partition_id
+            ))
             .await;
 
         if data_fetched_result.is_err() {
@@ -326,19 +336,21 @@ impl ShuffleServer for DefaultShuffleServer {
             }));
         }
 
+        let partition_id = PartitionedUId {
+            app_id: app_id.to_string(),
+            shuffle_id,
+            partition_id,
+        };
         let data_fetched_result = app
             .unwrap()
             .select(ReadingViewContext {
-                uid: PartitionedUId {
-                    app_id: app_id.to_string(),
-                    shuffle_id,
-                    partition_id,
-                },
+                uid: partition_id.clone(),
                 reading_options: ReadingOptions::MEMORY_LAST_BLOCK_ID_AND_MAX_SIZE(
                     req.last_block_id,
                     req.read_buffer_size as i64,
                 ),
             })
+            .instrument_await(format!("select data from memory. uid: {:?}", &partition_id))
             .await;
 
         if data_fetched_result.is_err() {
@@ -443,15 +455,20 @@ impl ShuffleServer for DefaultShuffleServer {
             }));
         }
 
+        let partition_id = PartitionedUId {
+            app_id: app_id.to_string(),
+            shuffle_id,
+            partition_id,
+        };
         let block_ids_result = app
             .unwrap()
             .get_block_ids(GetBlocksContext {
-                uid: PartitionedUId {
-                    app_id: app_id.to_string(),
-                    shuffle_id,
-                    partition_id,
-                },
+                uid: partition_id.clone(),
             })
+            .instrument_await(format!(
+                "getting shuffle blocks ids. uid: {:?}",
+                &partition_id
+            ))
             .await;
 
         if block_ids_result.is_err() {
@@ -553,17 +570,20 @@ impl ShuffleServer for DefaultShuffleServer {
                 ret_msg: "No such app in this shuffle server".to_string(),
             }));
         }
+
+        let partition_id = PartitionedUId {
+            app_id,
+            shuffle_id,
+            // ignore this.
+            partition_id: 1,
+        };
         let app = app
             .unwrap()
             .require_buffer(RequireBufferContext {
-                uid: PartitionedUId {
-                    app_id,
-                    shuffle_id,
-                    // ignore this.
-                    partition_id: 1,
-                },
+                uid: partition_id.clone(),
                 size: req.require_size as i64,
             })
+            .instrument_await(format!("require buffer. uid: {:?}", &partition_id))
             .await;
 
         let res = match app {

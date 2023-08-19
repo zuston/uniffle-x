@@ -334,7 +334,10 @@ impl Store for MemoryStore {
     async fn get(&self, ctx: ReadingViewContext) -> Result<ResponseData, WorkerError> {
         let uid = ctx.uid;
         let buffer = self.get_or_create_underlying_staging_buffer(uid);
-        let buffer = buffer.lock().await;
+        let buffer = buffer
+            .lock()
+            .instrument_await("getting partitioned buffer lock")
+            .await;
 
         let options = ctx.reading_options;
         let (fetched_blocks, length) = match options {
