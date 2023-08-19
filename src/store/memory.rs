@@ -976,7 +976,7 @@ mod test {
             _ => panic!(),
         }
 
-        let budget = store.budget.inner.lock().await;
+        let budget = store.budget.inner.lock().unwrap();
         assert_eq!(0, budget.allocated);
         assert_eq!(0, budget.used);
         assert_eq!(1024 * 1024 * 1024, budget.capacity);
