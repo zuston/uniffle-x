@@ -433,12 +433,14 @@ impl Store for HybridStore {
 
     async fn purge(&self, app_id: String) -> Result<()> {
         self.hot_store.purge(app_id.clone()).await?;
+        debug!("app data of [{}] in hot store has been removed", &app_id);
         if self.warm_store.is_some() {
             self.warm_store
                 .as_ref()
                 .unwrap()
                 .purge(app_id.clone())
                 .await?;
+            debug!("app data of [{}] in warm store has been removed", &app_id);
         }
         if self.cold_store.is_some() {
             self.cold_store
@@ -446,6 +448,7 @@ impl Store for HybridStore {
                 .unwrap()
                 .purge(app_id.clone())
                 .await?;
+            debug!("app data of [{}] in cold store has been removed", &app_id);
         }
         Ok(())
     }

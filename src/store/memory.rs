@@ -236,7 +236,7 @@ impl MemoryStore {
             None => self
                 .memory_allocated_of_app
                 .remove(app_id)
-                .map_or(0, |app| app.1.iter().map(|x| x.get_size()).sum()),
+                .map_or(0, |app| app.1.iter().map(|x| x.value().get_size()).sum()),
             Some(ticket_id) => self.memory_allocated_of_app.get(app_id).map_or(0, |app| {
                 app.remove(&ticket_id)
                     .map_or(0, |ticket| ticket.1.get_size())
@@ -469,6 +469,10 @@ impl Store for MemoryStore {
     async fn purge(&self, app_id: String) -> Result<()> {
         let released_size = self.discard_tickets(app_id.as_str(), None);
         self.budget.free_allocated(released_size).await?;
+        info!(
+            "released app of [{}] allocated size: {}",
+            &app_id, released_size
+        );
 
         // remove the corresponding app's data
         let read_only_state_view = self.state.clone().into_read_only();
@@ -479,9 +483,17 @@ impl Store for MemoryStore {
                 _removed_list.push(pid);
             }
         }
+        info!(
+            "the candidate removed partition ids size: {}",
+            _removed_list.len()
+        );
+        let mut removed = 0i64;
         for removed_pid in _removed_list {
-            self.state.remove(removed_pid);
+            if let Some(_) = self.state.remove(removed_pid) {
+                removed += 1;
+            }
         }
+        info!("finally remove partition size: {}", removed);
 
         Ok(())
     }
@@ -703,6 +715,7 @@ mod test {
 
     use crate::config::MemoryStoreConfig;
     use anyhow::Result;
+    use dashmap::DashMap;
     use tokio::time::sleep as delay_for;
 
     #[tokio::test]
@@ -1024,5 +1037,25 @@ mod test {
             }
             _ => panic!("should not"),
         }
+    }
+
+    #[test]
+    fn read_only_view_test() {
+        let dashmap = DashMap::new();
+        dashmap.insert(1, 1);
+        dashmap.insert(2, 1);
+
+        let mut removed_list = vec![];
+        let view = dashmap.clone().into_read_only();
+        for entry in view.iter() {
+            let key = entry.0;
+            removed_list.push(*key);
+        }
+
+        for id in removed_list {
+            dashmap.remove(&id);
+        }
+
+        assert_eq!(0, dashmap.len());
     }
 }

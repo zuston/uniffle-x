@@ -464,6 +464,8 @@ impl AppManager {
 
         self.apps.remove(&app_id);
 
+        info!("All app's data of [{}] has been removed", &app_id);
+
         Ok(())
     }
 
