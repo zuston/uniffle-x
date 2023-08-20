@@ -3144,7 +3144,6 @@ dependencies = [
  "futures",
  "hdrs",
  "hyper",
- "lazy_static",
  "log",
  "once_cell",
  "poem",

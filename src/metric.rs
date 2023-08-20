@@ -16,7 +16,6 @@
 // under the License.
 
 use crate::config::MetricsConfig;
-use lazy_static::lazy_static;
 use log::{error, info};
 use once_cell::sync::Lazy;
 use prometheus::{labels, Histogram, HistogramOpts, IntCounter, IntGauge, Registry};
@@ -87,60 +86,76 @@ pub static GRPC_BUFFER_REQUIRE_PROCESS_TIME: Lazy<Histogram> = Lazy::new(|| {
     histogram
 });
 
-lazy_static! {
-    pub static ref TOTAL_MEMORY_USED: IntCounter =
-        IntCounter::new("total_memory_used", "Total memory used")
-            .expect("metric should be created");
-    pub static ref TOTAL_LOCALFILE_USED: IntCounter =
-        IntCounter::new("total_localfile_used", "Total localfile used")
-            .expect("metric should be created");
-    pub static ref TOTAL_HDFS_USED: IntCounter =
-        IntCounter::new("total_hdfs_used", "Total hdfs used").expect("metric should be created");
-    pub static ref GAUGE_MEMORY_USED: IntGauge =
-        IntGauge::new("memory_used", "memory used").expect("metric should be created");
-    pub static ref GAUGE_MEMORY_ALLOCATED: IntGauge =
-        IntGauge::new("memory_allocated", "memory allocated").expect("metric should be created");
-    pub static ref GAUGE_MEMORY_CAPACITY: IntGauge =
-        IntGauge::new("memory_capacity", "memory capacity").expect("metric should be created");
-    pub static ref TOTAL_MEMORY_SPILL_OPERATION: IntCounter =
-        IntCounter::new("total_memory_spill", "memory capacity").expect("metric should be created");
-    pub static ref TOTAL_MEMORY_SPILL_OPERATION_FAILED: IntCounter =
-        IntCounter::new("total_memory_spill_failed", "memory capacity")
-            .expect("metric should be created");
-    pub static ref TOTAL_MEMORY_SPILL_TO_LOCALFILE: IntCounter = IntCounter::new(
+pub static TOTAL_MEMORY_USED: Lazy<IntCounter> = Lazy::new(|| {
+    IntCounter::new("total_memory_used", "Total memory used").expect("metric should be created")
+});
+
+pub static TOTAL_LOCALFILE_USED: Lazy<IntCounter> = Lazy::new(|| {
+    IntCounter::new("total_localfile_used", "Total localfile used")
+        .expect("metric should be created")
+});
+
+pub static TOTAL_HDFS_USED: Lazy<IntCounter> = Lazy::new(|| {
+    IntCounter::new("total_hdfs_used", "Total hdfs used").expect("metric should be created")
+});
+pub static GAUGE_MEMORY_USED: Lazy<IntGauge> =
+    Lazy::new(|| IntGauge::new("memory_used", "memory used").expect("metric should be created"));
+pub static GAUGE_MEMORY_ALLOCATED: Lazy<IntGauge> = Lazy::new(|| {
+    IntGauge::new("memory_allocated", "memory allocated").expect("metric should be created")
+});
+pub static GAUGE_MEMORY_CAPACITY: Lazy<IntGauge> = Lazy::new(|| {
+    IntGauge::new("memory_capacity", "memory capacity").expect("metric should be created")
+});
+pub static TOTAL_MEMORY_SPILL_OPERATION: Lazy<IntCounter> = Lazy::new(|| {
+    IntCounter::new("total_memory_spill", "memory capacity").expect("metric should be created")
+});
+pub static TOTAL_MEMORY_SPILL_OPERATION_FAILED: Lazy<IntCounter> = Lazy::new(|| {
+    IntCounter::new("total_memory_spill_failed", "memory capacity")
+        .expect("metric should be created")
+});
+pub static TOTAL_MEMORY_SPILL_TO_LOCALFILE: Lazy<IntCounter> = Lazy::new(|| {
+    IntCounter::new(
         "total_memory_spill_to_localfile",
-        "memory spill to localfile"
+        "memory spill to localfile",
     )
-    .expect("metric should be created");
-    pub static ref TOTAL_MEMORY_SPILL_TO_HDFS: IntCounter =
-        IntCounter::new("total_memory_spill_to_hdfs", "memory spill to hdfs")
-            .expect("metric should be created");
-    pub static ref GAUGE_MEMORY_SPILL_OPERATION: IntGauge =
-        IntGauge::new("memory_spill", "memory spill").expect("metric should be created");
-    pub static ref GAUGE_MEMORY_SPILL_TO_LOCALFILE: IntGauge =
-        IntGauge::new("memory_spill_to_localfile", "memory spill to localfile")
-            .expect("metric should be created");
-    pub static ref GAUGE_MEMORY_SPILL_TO_HDFS: IntGauge =
-        IntGauge::new("memory_spill_to_hdfs", "memory spill to hdfs")
-            .expect("metric should be created");
-    pub static ref TOTAL_APP_NUMBER: IntCounter =
-        IntCounter::new("total_app_number", "total_app_number").expect("metrics should be created");
-    pub static ref TOTAL_PARTITION_NUMBER: IntCounter =
-        IntCounter::new("total_partition_number", "total_partition_number")
-            .expect("metrics should be created");
-    pub static ref GAUGE_APP_NUMBER: IntGauge =
-        IntGauge::new("app_number", "app_number").expect("metrics should be created");
-    pub static ref GAUGE_PARTITION_NUMBER: IntGauge =
-        IntGauge::new("partition_number", "partition_number").expect("metrics should be created");
-    pub static ref TOTAL_REQUIRE_BUFFER_FAILED: IntCounter =
-        IntCounter::new("total_require_buffer_failed", "total_require_buffer_failed")
-            .expect("metrics should be created");
-    pub static ref TOTAL_HUGE_PARTITION_REQUIRE_BUFFER_FAILED: IntCounter = IntCounter::new(
+    .expect("metric should be created")
+});
+pub static TOTAL_MEMORY_SPILL_TO_HDFS: Lazy<IntCounter> = Lazy::new(|| {
+    IntCounter::new("total_memory_spill_to_hdfs", "memory spill to hdfs")
+        .expect("metric should be created")
+});
+pub static GAUGE_MEMORY_SPILL_OPERATION: Lazy<IntGauge> =
+    Lazy::new(|| IntGauge::new("memory_spill", "memory spill").expect("metric should be created"));
+pub static GAUGE_MEMORY_SPILL_TO_LOCALFILE: Lazy<IntGauge> = Lazy::new(|| {
+    IntGauge::new("memory_spill_to_localfile", "memory spill to localfile")
+        .expect("metric should be created")
+});
+pub static GAUGE_MEMORY_SPILL_TO_HDFS: Lazy<IntGauge> = Lazy::new(|| {
+    IntGauge::new("memory_spill_to_hdfs", "memory spill to hdfs").expect("metric should be created")
+});
+pub static TOTAL_APP_NUMBER: Lazy<IntCounter> = Lazy::new(|| {
+    IntCounter::new("total_app_number", "total_app_number").expect("metrics should be created")
+});
+pub static TOTAL_PARTITION_NUMBER: Lazy<IntCounter> = Lazy::new(|| {
+    IntCounter::new("total_partition_number", "total_partition_number")
+        .expect("metrics should be created")
+});
+pub static GAUGE_APP_NUMBER: Lazy<IntGauge> =
+    Lazy::new(|| IntGauge::new("app_number", "app_number").expect("metrics should be created"));
+pub static GAUGE_PARTITION_NUMBER: Lazy<IntGauge> = Lazy::new(|| {
+    IntGauge::new("partition_number", "partition_number").expect("metrics should be created")
+});
+pub static TOTAL_REQUIRE_BUFFER_FAILED: Lazy<IntCounter> = Lazy::new(|| {
+    IntCounter::new("total_require_buffer_failed", "total_require_buffer_failed")
+        .expect("metrics should be created")
+});
+pub static TOTAL_HUGE_PARTITION_REQUIRE_BUFFER_FAILED: Lazy<IntCounter> = Lazy::new(|| {
+    IntCounter::new(
         "total_huge_partition_require_buffer_failed",
-        "total_huge_partition_require_buffer_failed"
+        "total_huge_partition_require_buffer_failed",
     )
-    .expect("metrics should be created");
-}
+    .expect("metrics should be created")
+});
 
 fn register_custom_metrics() {
     REGISTRY

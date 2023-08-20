@@ -26,12 +26,10 @@ use crate::http::http_service::PoemHTTPServer;
 use crate::http::jeprof::JeProfHandler;
 use crate::http::metrics::MetricsHTTPHandler;
 use crate::http::pprof::PProfHandler;
-use lazy_static::lazy_static;
+use once_cell::sync::Lazy;
 use poem::RouteMethod;
 
-lazy_static! {
-    pub static ref HTTP_SERVICE: Box<PoemHTTPServer> = new_server();
-}
+pub static HTTP_SERVICE: Lazy<Box<PoemHTTPServer>> = Lazy::new(|| new_server());
 
 /// Implement the own handlers for concrete components
 pub trait Handler {
