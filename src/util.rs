@@ -58,6 +58,12 @@ pub fn get_crc(bytes: &Bytes) -> i64 {
     crc32.finalize() as i64
 }
 
+pub fn current_timestamp_ms() -> u128 {
+    let current_time = SystemTime::now();
+    let timestamp = current_time.duration_since(UNIX_EPOCH).unwrap().as_millis();
+    timestamp
+}
+
 pub fn current_timestamp_sec() -> u64 {
     let current_time = SystemTime::now();
     let timestamp = current_time.duration_since(UNIX_EPOCH).unwrap().as_secs();
