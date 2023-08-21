@@ -19,9 +19,7 @@ use await_tree::{Registry, TreeRoot};
 
 use once_cell::sync::Lazy;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Arc;
-
-use tokio::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 type AwaitTreeRegistryRef = Arc<Mutex<Registry<u64>>>;
 
@@ -44,7 +42,7 @@ impl AwaitTreeInner {
     pub async fn register(&self, msg: String) -> TreeRoot {
         let id = self.next_id.fetch_add(1, Ordering::SeqCst);
         let msg = format!("actor=[{}], {}", id, msg);
-        self.inner.lock().await.register(id, msg)
+        self.inner.lock().unwrap().register(id, msg)
     }
 
     pub fn get_inner(&self) -> AwaitTreeRegistryRef {
