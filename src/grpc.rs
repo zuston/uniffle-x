@@ -122,7 +122,7 @@ impl ShuffleServer for DefaultShuffleServer {
         let ticket_id = req.require_buffer_id;
 
         GRPC_SEND_DATA_TRANSPORT_TIME
-            .observe((util::current_timestamp_sec() - req.timestamp as u64) as f64);
+            .observe((util::current_timestamp_ms() - req.timestamp as u128) as f64);
 
         let app_option = self.app_manager_ref.get_app(&app_id);
 
@@ -263,7 +263,7 @@ impl ShuffleServer for DefaultShuffleServer {
         let partition_id = req.partition_id;
 
         GRPC_GET_MEMORY_DATA_TRANSPORT_TIME
-            .observe((util::current_timestamp_sec() - req.timestamp as u64) as f64);
+            .observe((util::current_timestamp_ms() - req.timestamp as u128) as f64);
 
         let app = self.app_manager_ref.get_app(&app_id);
         if app.is_none() {
@@ -324,7 +324,7 @@ impl ShuffleServer for DefaultShuffleServer {
         let partition_id = req.partition_id;
 
         GRPC_GET_MEMORY_DATA_TRANSPORT_TIME
-            .observe((util::current_timestamp_sec() - req.timestamp as u64) as f64);
+            .observe((util::current_timestamp_ms() - req.timestamp as u128) as f64);
 
         let app = self.app_manager_ref.get_app(&app_id);
         if app.is_none() {
