@@ -601,7 +601,11 @@ impl LocalDisk {
     }
 
     async fn write(&self, data: Bytes, relative_file_path: String) -> Result<()> {
-        let _concurrency_guarder = self.concurrency_limiter.acquire().await?;
+        let _concurrency_guarder = self
+            .concurrency_limiter
+            .acquire()
+            .instrument_await("meet the concurrency limiter")
+            .await?;
         let absolute_path = self.append_path(relative_file_path.clone());
         let path = Path::new(&absolute_path);
 
@@ -614,7 +618,7 @@ impl LocalDisk {
             _ => todo!(),
         }
 
-        debug!("data file: {}", absolute_path.clone());
+        debug!("data file: {}", &absolute_path);
 
         let mut output_file = OpenOptions::new()
             .append(true)
@@ -630,10 +634,15 @@ impl LocalDisk {
     async fn get_file_len(&self, relative_file_path: String) -> Result<i64> {
         let file_path = self.append_path(relative_file_path);
 
-        Ok(match tokio::fs::metadata(file_path).await {
-            Ok(metadata) => metadata.len() as i64,
-            _ => 0i64,
-        })
+        Ok(
+            match tokio::fs::metadata(file_path)
+                .instrument_await("getting metadata of path")
+                .await
+            {
+                Ok(metadata) => metadata.len() as i64,
+                _ => 0i64,
+            },
+        )
     }
 
     async fn read(
@@ -644,17 +653,37 @@ impl LocalDisk {
     ) -> Result<Bytes> {
         let file_path = self.append_path(relative_file_path);
 
-        let file = tokio::fs::File::open(&file_path).await?;
+        let file = tokio::fs::File::open(&file_path)
+            .instrument_await(format!("opening file. path: {}", &file_path))
+            .await?;
 
         let read_len = match length {
             Some(len) => len,
-            _ => file.metadata().await?.len().try_into().unwrap(),
+            _ => file
+                .metadata()
+                .instrument_await(format!("getting file metadata. path: {}", &file_path))
+                .await?
+                .len()
+                .try_into()
+                .unwrap(),
         } as usize;
 
         let mut reader = tokio::io::BufReader::new(file);
         let mut buffer = vec![0; read_len];
-        reader.seek(SeekFrom::Start(offset as u64)).await?;
-        reader.read_exact(buffer.as_mut()).await?;
+        reader
+            .seek(SeekFrom::Start(offset as u64))
+            .instrument_await(format!(
+                "seeking file [{}:{}] of path: {}",
+                offset, read_len, &file_path
+            ))
+            .await?;
+        reader
+            .read_exact(buffer.as_mut())
+            .instrument_await(format!(
+                "reading data of len: {} from path: {}",
+                read_len, &file_path
+            ))
+            .await?;
 
         let mut bytes_buffer = BytesMut::new();
         bytes_buffer.extend_from_slice(&*buffer);
