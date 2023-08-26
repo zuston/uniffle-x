@@ -116,11 +116,11 @@ export CLASSPATH=$(${HADOOP_HOME}/bin/hadoop classpath --glob)
 ## Profiling
 
 ### Tokio console
-1. build with unstable tokio for uniffle-worker binary
+1. build with unstable tokio for uniffle-worker binary (this has been enabled by default)
     ```shell
-    RUSTFLAGS="--cfg tokio_unstable" cargo build
+    cargo build
     ```
-2. worker run with tokio-console. the log level of trace must be enabled
+2. worker run with tokio-console. the log level of `trace` must be enabled
     ```shell
     WORKER_IP={ip} RUST_LOG=trace WORKER_CONFIG_PATH=./config.toml ./uniffle-worker
     ```
