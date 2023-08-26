@@ -467,8 +467,14 @@ impl Store for MemoryStore {
     }
 
     async fn purge(&self, app_id: String) -> Result<()> {
+        // free allocated
         let released_size = self.discard_tickets(app_id.as_str(), None);
         self.budget.free_allocated(released_size).await?;
+        info!(
+            "free allocated buffer size:[{}] for app:[{}]",
+            released_size,
+            app_id.as_str()
+        );
 
         // remove the corresponding app's data
         let read_only_state_view = self.state.clone().into_read_only();
@@ -479,9 +485,22 @@ impl Store for MemoryStore {
                 _removed_list.push(pid);
             }
         }
+
+        let mut used = 0;
         for removed_pid in _removed_list {
-            self.state.remove(removed_pid);
+            if let Some(entry) = self.state.remove(removed_pid) {
+                used += entry.1.lock().await.total_size;
+            }
         }
+
+        // free used
+        self.budget.free_used(used).await?;
+
+        info!(
+            "removed used buffer size:[{}] for app:[{}]",
+            used,
+            app_id.as_str()
+        );
 
         Ok(())
     }
@@ -983,6 +1002,54 @@ mod test {
         assert_eq!(0, budget.allocated);
         assert_eq!(0, budget.used);
         assert_eq!(1024 * 1024 * 1024, budget.capacity);
+    }
+
+    #[tokio::test]
+    async fn test_purge() -> Result<()> {
+        let store = MemoryStore::new(1024);
+        let app_id = "purge_app";
+        let shuffle_id = 1;
+        let partition = 1;
+
+        let uid = PartitionedUId::from(app_id.to_string(), shuffle_id, partition);
+
+        // the buffer requested
+        let _buffer = store
+            .require_buffer(RequireBufferContext::new(uid.clone(), 40))
+            .await
+            .expect("");
+
+        let writing_ctx = WritingViewContext {
+            uid: uid.clone(),
+            data_blocks: vec![PartitionedDataBlock {
+                block_id: 0,
+                length: 10,
+                uncompress_length: 100,
+                crc: 99,
+                data: Default::default(),
+                task_attempt_id: 0,
+            }],
+        };
+        store.insert(writing_ctx).await.expect("");
+
+        let reading_ctx = ReadingViewContext {
+            uid: uid.clone(),
+            reading_options: ReadingOptions::MEMORY_LAST_BLOCK_ID_AND_MAX_SIZE(-1, 1000000),
+        };
+        let data = store.get(reading_ctx.clone()).await.expect("");
+        assert_eq!(1, data.from_memory().shuffle_data_block_segments.len());
+
+        // purge
+        store.purge(app_id.to_string()).await.expect("");
+        let snapshot = store.budget.snapshot().await;
+        assert_eq!(snapshot.used, 0);
+        // the remaining allocated will be removed.
+        assert_eq!(snapshot.allocated, 0);
+        assert_eq!(snapshot.capacity, 1024);
+        let data = store.get(reading_ctx.clone()).await.expect("");
+        assert_eq!(0, data.from_memory().shuffle_data_block_segments.len());
+
+        Ok(())
     }
 
     #[tokio::test]

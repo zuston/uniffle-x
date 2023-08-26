@@ -39,7 +39,7 @@ use crate::store::{
 use anyhow::{anyhow, Result};
 
 use async_trait::async_trait;
-use log::{debug, error};
+use log::{debug, error, info};
 use prometheus::core::{Atomic, AtomicU64};
 use std::any::Any;
 
@@ -433,12 +433,14 @@ impl Store for HybridStore {
 
     async fn purge(&self, app_id: String) -> Result<()> {
         self.hot_store.purge(app_id.clone()).await?;
+        info!("Removed data of app:[{}] in hot store", &app_id);
         if self.warm_store.is_some() {
             self.warm_store
                 .as_ref()
                 .unwrap()
                 .purge(app_id.clone())
                 .await?;
+            info!("Removed data of app:[{}] in warm store", &app_id);
         }
         if self.cold_store.is_some() {
             self.cold_store
@@ -446,6 +448,7 @@ impl Store for HybridStore {
                 .unwrap()
                 .purge(app_id.clone())
                 .await?;
+            info!("Removed data of app:[{}] in cold store", &app_id);
         }
         Ok(())
     }
