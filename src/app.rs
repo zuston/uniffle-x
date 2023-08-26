@@ -300,6 +300,7 @@ pub struct WritingViewContext {
     pub data_blocks: Vec<PartitionedDataBlock>,
 }
 
+#[derive(Debug, Clone)]
 pub struct ReadingViewContext {
     pub uid: PartitionedUId,
     pub reading_options: ReadingOptions,
@@ -321,6 +322,7 @@ impl RequireBufferContext {
     }
 }
 
+#[derive(Debug, Clone)]
 pub enum ReadingOptions {
     #[allow(non_camel_case_types)]
     MEMORY_LAST_BLOCK_ID_AND_MAX_SIZE(i64, i64),
@@ -414,14 +416,14 @@ impl AppManager {
                 let _ = match event {
                     PurgeEvent::HEART_BEAT_TIMEOUT(app_id) => {
                         info!(
-                            "The app:{} data of heartbeat timeout will be purged.",
+                            "The app:[{}]'s data will be purged due to heartbeat timeout",
                             &app_id
                         );
                         app_manager_cloned.purge_app_data(app_id).await
                     }
                     PurgeEvent::APP_PURGE(app_id) => {
                         info!(
-                            "The app:{} has been finished, its data will be purged.",
+                            "The app:[{}] has been finished, its data will be purged.",
                             &app_id
                         );
                         app_manager_cloned.purge_app_data(app_id).await
@@ -558,7 +560,7 @@ mod test {
     };
     use crate::config::{Config, HybridStoreConfig, LocalfileStoreConfig, MemoryStoreConfig};
 
-    use crate::store::PartitionedDataBlock;
+    use crate::store::{PartitionedDataBlock, ResponseData};
     use croaring::treemap::JvmSerializer;
     use croaring::Treemap;
 
@@ -614,27 +616,38 @@ mod test {
                     },
                 ],
             };
+
+            // case1: put
             let result = app.insert(writing_ctx);
             if result.await.is_err() {
                 panic!()
             }
 
-            let _reading_ctx = ReadingViewContext {
+            let reading_ctx = ReadingViewContext {
                 uid: Default::default(),
                 reading_options: ReadingOptions::MEMORY_LAST_BLOCK_ID_AND_MAX_SIZE(-1, 1000000),
             };
 
-            // let result = app.select(readingCtx);
-            // if result.await.is_err() {
-            //     panic!()
-            // }
-            //
-            // match result.await.unwrap() {
-            //     ResponseData::mem(data) => {
-            //         assert_eq!(2, data.shuffle_data_block_segments.len());
-            //     },
-            //     _ => todo!()
-            // }
+            // case2: get
+            let result = app.select(reading_ctx).await;
+            if result.is_err() {
+                panic!()
+            }
+
+            match result.unwrap() {
+                ResponseData::Mem(data) => {
+                    assert_eq!(2, data.shuffle_data_block_segments.len());
+                }
+                _ => todo!(),
+            }
+
+            // case3: purge
+            app_manager_ref
+                .purge_app_data(app_id.to_string())
+                .await
+                .expect("");
+
+            assert_eq!(false, app_manager_ref.get_app(app_id).is_none());
         }
     }
 

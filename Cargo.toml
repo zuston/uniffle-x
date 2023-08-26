@@ -26,6 +26,10 @@ edition = "2021"
 name="uniffle-worker"
 path= "src/main.rs"
 
+[[bin]]
+name="benchmark"
+path= "src/benchmark_client.rs"
+
 [lib]
 name = "uniffle_worker"
 path = "src/lib.rs"
