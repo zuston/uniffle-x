@@ -29,6 +29,7 @@ use crate::metric::{
     TOTAL_MEMORY_SPILL_TO_LOCALFILE,
 };
 use crate::readable_size::ReadableSize;
+#[cfg(feature = "hdfs")]
 use crate::store::hdfs::HdfsStore;
 use crate::store::localfile::LocalFileStore;
 use crate::store::memory::{MemorySnapshot, MemoryStore};
@@ -53,6 +54,8 @@ use tokio::sync::{Mutex, Semaphore};
 
 trait PersistentStore: Store + Persistent + Send + Sync {}
 impl PersistentStore for LocalFileStore {}
+
+#[cfg(feature = "hdfs")]
 impl PersistentStore for HdfsStore {}
 
 const DEFAULT_MEMORY_SPILL_MAX_CONCURRENCY: i32 = 20;
@@ -98,8 +101,14 @@ impl HybridStore {
             let localfile_store = LocalFileStore::from(config.localfile_store.unwrap());
             persistent_stores.push_back(Box::new(localfile_store));
         }
+
         if StorageType::contains_hdfs(&store_type) {
+            #[cfg(not(feature = "hdfs"))]
+            panic!("The binary is not compiled with feature of hdfs! So the storage type can't involve hdfs.");
+
+            #[cfg(feature = "hdfs")]
             let hdfs_store = HdfsStore::from(config.hdfs_store.unwrap());
+            #[cfg(feature = "hdfs")]
             persistent_stores.push_back(Box::new(hdfs_store));
         }
 
@@ -141,6 +150,7 @@ impl HybridStore {
         if store.is::<LocalFileStore>() {
             return StorageType::LOCALFILE;
         }
+        #[cfg(feature = "hdfs")]
         if store.is::<HdfsStore>() {
             return StorageType::HDFS;
         }
@@ -151,8 +161,13 @@ impl HybridStore {
         store.is::<LocalFileStore>()
     }
 
+    #[allow(unused)]
     fn is_hdfs(&self, store: &dyn Any) -> bool {
-        store.is::<HdfsStore>()
+        #[cfg(feature = "hdfs")]
+        return store.is::<HdfsStore>();
+
+        #[cfg(not(feature = "hdfs"))]
+        false
     }
 
     async fn memory_spill_to_persistent_store(

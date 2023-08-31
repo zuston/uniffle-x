@@ -15,6 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#[cfg(feature = "hdfs")]
 pub mod hdfs;
 pub mod hybrid;
 pub mod localfile;
