@@ -111,6 +111,8 @@ export LD_LIBRARY_PATH=${JAVA_HOME}/jre/lib/amd64/server:${LD_LIBRARY_PATH}
 
 export HADOOP_HOME=/path/to/hadoop
 export CLASSPATH=$(${HADOOP_HOME}/bin/hadoop classpath --glob)
+
+cargo build --features hdfs --release
 ``` 
 
 ## Profiling

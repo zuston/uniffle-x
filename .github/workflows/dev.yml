@@ -56,7 +56,7 @@ jobs:
         with:
           version: "v0.4.0-pre.6"
       - name: Build
-        run: cargo build --verbose
+        run: cargo build --features hdfs --verbose
         if: ${{ matrix.features == '' }}
       - name: Build with memory-prof
         run: cargo build --verbose --features memory-prof
