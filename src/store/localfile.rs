@@ -423,19 +423,9 @@ impl Store for LocalFileStore {
             return Ok(());
         }
 
-        let (shuffle_id, partition_id) = all_partition_ids
-            .get(0)
-            .ok_or(WorkerError::INTERNAL_ERROR)?;
-
-        // delete app dir
-        let local_disk_option = self.get_owned_disk(PartitionedUId::from(
-            app_id.clone(),
-            *shuffle_id,
-            *partition_id,
-        ));
-        if local_disk_option.is_some() {
-            let local_disk = local_disk_option.unwrap();
-            local_disk.delete(app_relative_dir_path.clone()).await?;
+        for local_disk_ref in &self.local_disks {
+            let disk = local_disk_ref.clone();
+            disk.delete(app_relative_dir_path.to_string()).await?;
         }
 
         for (shuffle_id, partition_id) in all_partition_ids.into_iter() {
