@@ -157,6 +157,14 @@ pub static TOTAL_HUGE_PARTITION_REQUIRE_BUFFER_FAILED: Lazy<IntCounter> = Lazy::
     .expect("metrics should be created")
 });
 
+pub static TOTAL_BUFFER_REQUIRED_DATA_SIZE: Lazy<IntCounter> = Lazy::new(|| {
+    IntCounter::new(
+        "total_buffer_required_data_size",
+        "total_buffer_required_data_size",
+    )
+    .expect("metrics to be created")
+});
+
 fn register_custom_metrics() {
     REGISTRY
         .register(Box::new(TOTAL_RECEIVED_DATA.clone()))
@@ -241,6 +249,9 @@ fn register_custom_metrics() {
     REGISTRY
         .register(Box::new(GRPC_GET_MEMORY_DATA_TRANSPORT_TIME.clone()))
         .expect("grpc_get_memory_data_transport_time must be registered");
+    REGISTRY
+        .register(Box::new(TOTAL_BUFFER_REQUIRED_DATA_SIZE.clone()))
+        .expect("total_buffer_required_data_size must be registered")
 }
 
 pub fn configure_metric_service(metric_config: &Option<MetricsConfig>, worker_uid: String) -> bool {

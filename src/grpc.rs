@@ -41,7 +41,7 @@ use log::{debug, error, info, warn};
 use crate::metric::{
     GRPC_BUFFER_REQUIRE_PROCESS_TIME, GRPC_GET_LOCALFILE_DATA_PROCESS_TIME,
     GRPC_GET_MEMORY_DATA_PROCESS_TIME, GRPC_GET_MEMORY_DATA_TRANSPORT_TIME,
-    GRPC_SEND_DATA_PROCESS_TIME, GRPC_SEND_DATA_TRANSPORT_TIME,
+    GRPC_SEND_DATA_PROCESS_TIME, GRPC_SEND_DATA_TRANSPORT_TIME, TOTAL_BUFFER_REQUIRED_DATA_SIZE,
 };
 use crate::util;
 use tonic::{Request, Response, Status};
@@ -587,11 +587,14 @@ impl ShuffleServer for DefaultShuffleServer {
             .await;
 
         let res = match app {
-            Ok(required_buffer_res) => (
-                StatusCode::SUCCESS,
-                required_buffer_res.ticket_id,
-                "".to_string(),
-            ),
+            Ok(required_buffer_res) => {
+                TOTAL_BUFFER_REQUIRED_DATA_SIZE.inc_by(req.require_size as u64);
+                (
+                    StatusCode::SUCCESS,
+                    required_buffer_res.ticket_id,
+                    "".to_string(),
+                )
+            }
             Err(err) => (StatusCode::NO_BUFFER, -1i64, format!("{:?}", err)),
         };
 
